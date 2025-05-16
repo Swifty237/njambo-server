@@ -1,0 +1,14 @@
+{
+  "name": "njambo-app-mail-templates",
+  "version": "1.0.0",
+  "description": "Mail-templates for Njambo app",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Yannick Kamdem",
+  "license": "ISC",
+  "dependencies": {
+    "mjml": "^4.6.3"
+  }
+}
