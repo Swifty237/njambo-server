@@ -5,7 +5,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xssClean = require('xss-clean');
 const expressRateLimit = require('express-rate-limit');
 const hpp = require('hpp');
-// const cors = require('cors');
+const cors = require('cors');
 const logger = require('./logger');
 
 const configureMiddleware = (app) => {
@@ -13,20 +13,14 @@ const configureMiddleware = (app) => {
   // Body-parser middleware
   app.use(express.json());
 
-  app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", process.env.CLIENT_URI);
-    res.header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, PATCH");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-    );
+  app.use(cors({
+    origin: process.env.CLIENT_URI,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  }));
 
-    if (req.method === "OPTIONS") {
-      res.header("Access-Control-Allow-Methods", "POST, GET, PUT, PATCH, DELETE");
-      //to give access to all the methods provided
-      return res.status(200).json({});
-    }
-    next();
-  });
-
+  app.options('*', cors()); // Répond correctement aux requêtes preflight
 
   // Cookie Parser
   app.use(cookieParser());
