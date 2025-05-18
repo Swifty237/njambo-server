@@ -5,29 +5,28 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xssClean = require('xss-clean');
 const expressRateLimit = require('express-rate-limit');
 const hpp = require('hpp');
-const cors = require('cors');
+// const cors = require('cors');
 const logger = require('./logger');
 
 const configureMiddleware = (app) => {
 
-  const corsOptions = {
-    origin: 'https://njambo-front.vercel.app',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
-    credentials: true,
-    optionsSuccessStatus: 204,
-  };
-
-  // Enable CORS
-  app.use(cors(corsOptions));
-
-  // Permet au serveur de répondre correctement aux requêtes OPTIONS
-  app.options('*', cors(corsOptions));
-
-  app.use(express.json({ extended: false }));
-
   // Body-parser middleware
-  // app.use(express.json());
+  app.use(express.json());
+
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", process.env.CLIENT_URI);
+    res.header("Access-Control-Allow-Methods", "POST, GET, PUT, DELETE, PATCH");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+    );
+
+    if (req.method === "OPTIONS") {
+      res.header("Access-Control-Allow-Methods", "POST, GET, PUT, PATCH, DELETE");
+      //to give access to all the methods provided
+      return res.status(200).json({});
+    }
+    next();
+  });
+
 
   // Cookie Parser
   app.use(cookieParser());
