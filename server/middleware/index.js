@@ -20,7 +20,7 @@ const configureMiddleware = (app) => {
     credentials: true,
   }));
 
-  app.options('*', cors()); // Répond correctement aux requêtes preflight
+  app.options('/api/users', cors()); // Répond correctement aux requêtes preflight
 
   // Cookie Parser
   app.use(cookieParser());
