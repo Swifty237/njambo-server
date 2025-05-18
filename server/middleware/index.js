@@ -10,17 +10,18 @@ const logger = require('./logger');
 
 const configureMiddleware = (app) => {
 
-  // Body-parser middleware
-  app.use(express.json());
-
   app.use(cors({
     origin: process.env.CLIENT_URI,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
     credentials: true,
   }));
 
-  app.options('/api/users', cors()); // Répond correctement aux requêtes preflight
+  // Middleware pour gérer les requêtes OPTIONS (préflight)
+  app.options('*', cors());
+
+  // Body-parser middleware
+  app.use(express.json());
 
   // Cookie Parser
   app.use(cookieParser());
