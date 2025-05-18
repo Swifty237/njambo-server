@@ -9,8 +9,25 @@ const cors = require('cors');
 const logger = require('./logger');
 
 const configureMiddleware = (app) => {
+
+  const corsOptions = {
+    origin: 'https://njambo-front.vercel.app',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
+    credentials: true,
+    optionsSuccessStatus: 204,
+  };
+
+  // Enable CORS
+  app.use(cors(corsOptions));
+
+  // Permet au serveur de répondre correctement aux requêtes OPTIONS
+  app.options('*', cors(corsOptions));
+
+  app.use(express.json({ extended: false }));
+
   // Body-parser middleware
-  app.use(express.json());
+  // app.use(express.json());
 
   // Cookie Parser
   app.use(cookieParser());
@@ -35,12 +52,6 @@ const configureMiddleware = (app) => {
   // Prevent http param pollution
   app.use(hpp());
 
-  // Enable CORS
-  app.use(cors({
-    origin: ['https://njambo-front.vercel.app'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true,
-  }));
   // Custom logging middleware
   app.use(logger);
 };
