@@ -17,14 +17,11 @@ let db;
 // Init express app
 const app = express();
 
-// Config Express-Middleware
-configureMiddleware(app);
-
 // Set-up static asset path
 app.use(express.static(path.join('server', 'public')));
 
-// Middleware pour gérer les requêtes OPTIONS (préflight)
-app.options('*', cors());
+// Config Express-Middleware
+configureMiddleware(app);
 
 // Set-up Routes
 configureRoutes(app);
