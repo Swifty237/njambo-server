@@ -18,7 +18,7 @@ const configureMiddleware = (app) => {
   }));
 
   // Middleware pour gérer les requêtes OPTIONS (préflight)
-  app.options('*', cors());
+  // app.options('*', cors());
 
   // Body-parser middleware
   app.use(express.json());

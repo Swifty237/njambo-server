@@ -23,6 +23,9 @@ configureMiddleware(app);
 // Set-up static asset path
 app.use(express.static(path.join('server', 'public')));
 
+// Middleware pour gérer les requêtes OPTIONS (préflight)
+app.options('*', cors());
+
 // Set-up Routes
 configureRoutes(app);
 
