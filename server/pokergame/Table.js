@@ -4,9 +4,10 @@ const Hand = require('pokersolver').Hand;
 const Seat = require('./Seat');
 const Deck = require('./Deck');
 const SidePot = require('./SidePot');
+const Player = require('./Player');
 
 class Table {
-  constructor(id, name, limit, maxPlayers = 5) {
+  constructor(id, name, limit, maxPlayers = 4) {
     this.id = id;
     this.name = name;
     this.limit = limit;
@@ -33,8 +34,7 @@ class Table {
 
   initSeats(maxPlayers) {
     const seats = {};
-
-    for (let i = 1; i <= maxPlayers; i++) {
+    for (let i = 2; i <= maxPlayers; i++) {
       seats[i] = null;
     }
 
@@ -73,7 +73,8 @@ class Table {
 
   standPlayer(socketId) {
     for (let i of Object.keys(this.seats)) {
-      if (this.seats[i] && this.seats[i].player.socketId === socketId) {
+      if (this.seats[i]) {
+        // if (this.seats[i] && this.seats[i].player.socketId === socketId) {
         this.seats[i] = null;
       }
     }

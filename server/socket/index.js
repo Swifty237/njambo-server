@@ -28,7 +28,7 @@ const {
 const config = require('../config');
 
 const tables = {
-  1: new Table(1, 'Table 1', 10000),
+  1: new Table(1, 'Tatami 1', 10000),
 };
 const players = {};
 
@@ -96,6 +96,7 @@ const init = (socket, io) => {
 
   socket.on(JOIN_TABLE, (tableId) => {
     const table = tables[tableId];
+
     const player = players[socket.id];
 
     table.addPlayer(player);
@@ -179,6 +180,7 @@ const init = (socket, io) => {
   socket.on(SIT_DOWN, ({ tableId, seatId, amount }) => {
     const table = tables[tableId];
     const player = players[socket.id];
+
 
     if (player) {
       table.sitPlayer(player, seatId, amount);
@@ -335,7 +337,8 @@ const init = (socket, io) => {
       let seat = tableCopy.seats[i];
       if (
         seat &&
-        seat.hand.length > 0 &&
+        seat.hand.length > 0
+        &&
         seat.player.socketId !== socketId &&
         !(seat.lastAction === WINNER && tableCopy.wentToShowdown)
       ) {

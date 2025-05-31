@@ -16,7 +16,7 @@ exports.handleFreeChipsRequest = async (req, res) => {
       return res.status(400).json({ errors: [{ msg: 'Invalid request' }] });
     }
   } catch (err) {
-    console.error(err.message);
+    // console.error(err.message);
     return res.status(500).send('Internal server error');
   }
 };
