@@ -27,9 +27,7 @@ const {
 } = require('../pokergame/actions');
 const config = require('../config');
 
-const tables = {
-  1: new Table(1, 'Tatami 1', 10000),
-};
+const tables = {};
 const players = {};
 
 function getCurrentPlayers() {
@@ -44,11 +42,13 @@ function getCurrentTables() {
   return Object.values(tables).map((table) => ({
     id: table.id,
     name: table.name,
-    limit: table.limit,
+    price: table.price,
+    isPrivate: table.isPrivate,
+    createdAt: table.createdAt,
     maxPlayers: table.maxPlayers,
     currentNumberPlayers: table.players.length,
-    smallBlind: table.minBet,
-    bigBlind: table.minBet * 2,
+    smallBlind: table.price,
+    bigBlind: table.price * 2,
   }));
 }
 
@@ -76,14 +76,15 @@ const init = (socket, io) => {
         });
       }
 
-      user = await User.findById(user.id).select('-password');
+      const userInfo = await User.findById(user.id).select('-password');
 
       players[socket.id] = new Player(
         socket.id,
-        user._id,
-        user.name,
-        user.chipsAmount,
+        userInfo._id,
+        userInfo.name,
+        userInfo.chipsAmount,
       );
+
 
       socket.emit(RECEIVE_LOBBY_INFO, {
         tables: getCurrentTables(),
@@ -94,23 +95,42 @@ const init = (socket, io) => {
     }
   });
 
-  socket.on(JOIN_TABLE, (tableId) => {
-    const table = tables[tableId];
+  socket.on(JOIN_TABLE, ({ id, name, price, isPrivate, createdAt }) => {
+
+    let tableExists = false;
+
+    Object.keys(tables).forEach(tableId => {
+      if (tableId === id) {
+        return tableExists = true;
+      }
+    });
+
+    // Si aucune table avec cet id n'existe, on l'ajoute
+    if (!tableExists) {
+      tables[id] = new Table(id, name, price, isPrivate, createdAt);
+    }
 
     const player = players[socket.id];
 
-    table.addPlayer(player);
+    // console.log(`Avant ajout de ${player.name}`);
+    // console.log(tables[id].players);
 
-    socket.emit(TABLE_JOINED, { tables: getCurrentTables(), tableId });
+    // Ajout du joueur à la table
+    tables[id].addPlayer(player);
+
+    // console.log(`Après ajout de ${player.name}`);
+    // console.log(tables[id].players);
+
+    socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
     socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
 
     if (
-      tables[tableId].players &&
-      tables[tableId].players.length > 0 &&
+      tables[id].players &&
+      tables[id].players.length > 0 &&
       player
     ) {
       let message = `${player.name} joined the table.`;
-      broadcastToTable(table, message);
+      broadcastToTable(tables[id], message);
     }
   });
 
@@ -127,10 +147,16 @@ const init = (socket, io) => {
 
     table.removePlayer(socket.id);
 
+    if (table.players.length == 0) {
+      delete tables[tableId];
+      console.log(`table with id = ${tableId} deleted`);
+    }
+
     socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
     socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
 
     if (
+      tables[tableId] &&
       tables[tableId].players &&
       tables[tableId].players.length > 0 &&
       player
@@ -142,6 +168,12 @@ const init = (socket, io) => {
     if (table.activePlayers().length === 1) {
       clearForOnePlayer(table);
     }
+
+    socket.emit(RECEIVE_LOBBY_INFO, {
+      tables: getCurrentTables(),
+      players: getCurrentPlayers(),
+      socketId: socket.id,
+    });
   });
 
   socket.on(FOLD, (tableId) => {
@@ -189,9 +221,15 @@ const init = (socket, io) => {
       updatePlayerBankroll(player, -amount);
 
       broadcastToTable(table, message);
-      if (table.activePlayers().length === 2) {
-        initNewHand(table);
-      }
+      // if (table.activePlayers().length === 2) {
+      //   initNewHand(table);
+      // }
+
+      socket.emit(RECEIVE_LOBBY_INFO, {
+        tables: getCurrentTables(),
+        players: getCurrentPlayers(),
+        socketId: socket.id,
+      });
     }
   });
 

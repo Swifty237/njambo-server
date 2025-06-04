@@ -11,7 +11,7 @@ const logger = require('./logger');
 const configureMiddleware = (app) => {
 
   app.use(cors({
-    origin: process.env.CLIENT_URI,
+    origin: [process.env.CLIENT_URI, process.env.SECOND_CLIENT_URI],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token', 'Origin', 'X-Requested-With', 'Accept'],
     credentials: true,

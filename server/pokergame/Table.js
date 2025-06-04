@@ -7,13 +7,15 @@ const SidePot = require('./SidePot');
 const Player = require('./Player');
 
 class Table {
-  constructor(id, name, limit, maxPlayers = 4) {
+  constructor(id, name, price, isPrivate, createdAt) {
     this.id = id;
     this.name = name;
-    this.limit = limit;
-    this.maxPlayers = maxPlayers;
+    this.price = price;
+    this.isPrivate = isPrivate;
+    this.createdAt = createdAt;
+    this.maxPlayers = 4;
     this.players = [];
-    this.seats = this.initSeats(maxPlayers);
+    this.seats = this.initSeats(this.maxPlayers);
     this.board = [];
     this.deck = null;
     this.button = null;
@@ -34,10 +36,9 @@ class Table {
 
   initSeats(maxPlayers) {
     const seats = {};
-    for (let i = 2; i <= maxPlayers; i++) {
+    for (let i = 1; i <= maxPlayers; i++) {
       seats[i] = null;
     }
-
     return seats;
   }
 
@@ -132,6 +133,7 @@ class Table {
     }
     return current;
   }
+
   startHand() {
     this.deck = new Deck();
     this.wentToShowdown = false;
@@ -153,6 +155,7 @@ class Table {
 
     this.updateHistory();
   }
+
   unfoldPlayers() {
     for (let i = 1; i <= this.maxPlayers; i++) {
       const seat = this.seats[i];
