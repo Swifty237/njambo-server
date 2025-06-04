@@ -10,7 +10,7 @@ class Seat {
     this.bet = 0;
     this.turn = false;
     this.checked = true;
-    this.folded = true;
+    this.folded = false;
     this.lastAction = null;
     this.sittingOut = false;
   }

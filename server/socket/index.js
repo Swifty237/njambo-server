@@ -2,6 +2,7 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Table = require('../pokergame/Table');
 const Player = require('../pokergame/Player');
+const Seat = require('../pokergame/Seat');
 const {
   FETCH_LOBBY_INFO,
   RECEIVE_LOBBY_INFO,
@@ -213,17 +214,14 @@ const init = (socket, io) => {
     const table = tables[tableId];
     const player = players[socket.id];
 
-
     if (player) {
       table.sitPlayer(player, seatId, amount);
       let message = `${player.name} sat down in Seat ${seatId}`;
-
       updatePlayerBankroll(player, -amount);
-
       broadcastToTable(table, message);
-      // if (table.activePlayers().length === 2) {
-      //   initNewHand(table);
-      // }
+      if (table.activePlayers().length === 2) {
+        initNewHand(table);
+      }
 
       socket.emit(RECEIVE_LOBBY_INFO, {
         tables: getCurrentTables(),
@@ -369,7 +367,7 @@ const init = (socket, io) => {
   function hideOpponentCards(table, socketId) {
     let tableCopy = JSON.parse(JSON.stringify(table));
     let hiddenCard = { suit: 'hidden', rank: 'hidden' };
-    let hiddenHand = [hiddenCard, hiddenCard];
+    let hiddenHand = Array(5).fill(hiddenCard); // Créer un tableau de 5 cartes cachées
 
     for (let i = 1; i <= tableCopy.maxPlayers; i++) {
       let seat = tableCopy.seats[i];
