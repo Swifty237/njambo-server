@@ -25,6 +25,8 @@ const {
   DISCONNECT,
   TABLE_UPDATED,
   WINNER,
+  PLAY_ONE_CARD,
+  PLAYED_CARD
 } = require('../pokergame/actions');
 const config = require('../config');
 
@@ -43,13 +45,13 @@ function getCurrentTables() {
   return Object.values(tables).map((table) => ({
     id: table.id,
     name: table.name,
-    price: table.price,
+    bet: table.bet,
     isPrivate: table.isPrivate,
     createdAt: table.createdAt,
     maxPlayers: table.maxPlayers,
     currentNumberPlayers: table.players.length,
-    smallBlind: table.price,
-    bigBlind: table.price * 2,
+    smallBlind: table.bet,
+    bigBlind: table.bet * 2,
   }));
 }
 
@@ -96,7 +98,7 @@ const init = (socket, io) => {
     }
   });
 
-  socket.on(JOIN_TABLE, ({ id, name, price, isPrivate, createdAt }) => {
+  socket.on(JOIN_TABLE, ({ id, name, bet, isPrivate, createdAt }) => {
 
     let tableExists = false;
 
@@ -108,19 +110,13 @@ const init = (socket, io) => {
 
     // Si aucune table avec cet id n'existe, on l'ajoute
     if (!tableExists) {
-      tables[id] = new Table(id, name, price, isPrivate, createdAt);
+      tables[id] = new Table(id, name, bet, isPrivate, createdAt);
     }
 
     const player = players[socket.id];
 
-    // console.log(`Avant ajout de ${player.name}`);
-    // console.log(tables[id].players);
-
     // Ajout du joueur à la table
     tables[id].addPlayer(player);
-
-    // console.log(`Après ajout de ${player.name}`);
-    // console.log(tables[id].players);
 
     socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
     socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
@@ -177,6 +173,17 @@ const init = (socket, io) => {
     });
   });
 
+
+  socket.on(PLAY_ONE_CARD, ({ tableId, seatId, playedCard }) => {
+    console.log("on socket PLAY_ONE_CARD");
+
+    let table = tables[tableId];
+    let seat = table.seats[seatId]
+    seat.playOneCard(playedCard)
+    changeTurnAndBroadcast(table, seatId);
+    socket.emit(PLAYED_CARD, { tables: getCurrentTables(), tableId, seatId });
+  })
+
   socket.on(FOLD, (tableId) => {
     let table = tables[tableId];
     let res = table.handleFold(socket.id);
@@ -191,19 +198,19 @@ const init = (socket, io) => {
     res && changeTurnAndBroadcast(table, res.seatId);
   });
 
-  socket.on(CALL, (tableId) => {
-    let table = tables[tableId];
-    let res = table.handleCall(socket.id);
-    res && broadcastToTable(table, res.message);
-    res && changeTurnAndBroadcast(table, res.seatId);
-  });
+  // socket.on(CALL, (tableId) => {
+  //   let table = tables[tableId];
+  //   let res = table.handleCall(socket.id);
+  //   res && broadcastToTable(table, res.message);
+  //   res && changeTurnAndBroadcast(table, res.seatId);
+  // });
 
-  socket.on(RAISE, ({ tableId, amount }) => {
-    let table = tables[tableId];
-    let res = table.handleRaise(socket.id, amount);
-    res && broadcastToTable(table, res.message);
-    res && changeTurnAndBroadcast(table, res.seatId);
-  });
+  // socket.on(RAISE, ({ tableId, amount }) => {
+  //   let table = tables[tableId];
+  //   let res = table.handleRaise(socket.id, amount);
+  //   res && broadcastToTable(table, res.message);
+  //   res && changeTurnAndBroadcast(table, res.seatId);
+  // });
 
   socket.on(TABLE_MESSAGE, ({ message, from, tableId }) => {
     let table = tables[tableId];
@@ -219,15 +226,17 @@ const init = (socket, io) => {
       let message = `${player.name} sat down in Seat ${seatId}`;
       updatePlayerBankroll(player, -amount);
       broadcastToTable(table, message);
+
+      // La partie commence quand 2 joueurs sont assis
       if (table.activePlayers().length === 2) {
         initNewHand(table);
       }
 
-      socket.emit(RECEIVE_LOBBY_INFO, {
-        tables: getCurrentTables(),
-        players: getCurrentPlayers(),
-        socketId: socket.id,
-      });
+      // socket.emit(RECEIVE_LOBBY_INFO, {
+      //   tables: getCurrentTables(),
+      //   players: getCurrentPlayers(),
+      //   socketId: socket.id,
+      // });
     }
   });
 
@@ -341,7 +350,7 @@ const init = (socket, io) => {
       if (table.handOver) {
         initNewHand(table);
       }
-    }, 1000);
+    }, 100); // Réduire le délai de 1000ms à 200ms pour une meilleure réactivité
   }
 
   function initNewHand(table) {
@@ -359,7 +368,7 @@ const init = (socket, io) => {
     table.clearWinMessages();
     setTimeout(() => {
       table.clearSeatHands();
-      table.resetBoardAndPot();
+      table.resetPot();
       broadcastToTable(table, 'Waiting for more players');
     }, 5000);
   }

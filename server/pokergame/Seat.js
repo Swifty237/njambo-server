@@ -1,4 +1,4 @@
-const { FOLD, CHECK, RAISE, WINNER, CALL } = require('./actions');
+const { FOLD, CHECK, RAISE, WINNER, CALL, PLAY_ONE_CARD } = require('./actions');
 
 class Seat {
   constructor(id, player, buyin, stack) {
@@ -7,12 +7,42 @@ class Seat {
     this.buyin = buyin;
     this.stack = stack;
     this.hand = [];
+    this.playedHand = [];
     this.bet = 0;
     this.turn = false;
     this.checked = true;
     this.folded = false;
     this.lastAction = null;
     this.sittingOut = false;
+  }
+
+  playOneCard(card) {
+    console.log("playOneCard called with card:", card);
+    console.log("Current hand before:", this.hand);
+    console.log("Current playedHand before:", this.playedHand);
+
+    // Vérifier si la carte existe dans la main
+    const cardIndex = this.hand.findIndex(c => c.suit === card.suit && c.rank === card.rank);
+
+    if (cardIndex !== -1) {
+      // Créer une nouvelle copie de la main sans la carte
+      const newHand = [...this.hand];
+      newHand.splice(cardIndex, 1);
+      this.hand = newHand;
+
+      // Ajouter la carte à playedHand si elle n'y est pas déjà
+      const cardExists = this.playedHand.some(c => c.suit === card.suit && c.rank === card.rank);
+      if (!cardExists) {
+        this.playedHand = [...this.playedHand, card];
+      }
+    } else {
+      console.log("Card not found in hand:", card);
+    }
+
+    console.log("Current hand after:", this.hand);
+    console.log("Current playedHand after:", this.playedHand);
+
+    this.lastAction = PLAY_ONE_CARD;
   }
 
   fold() {
@@ -37,7 +67,7 @@ class Seat {
     this.turn = false;
     this.lastAction = RAISE;
   }
-  placeBlind(amount) {
+  placeBet(amount) {
     this.bet = amount;
     this.stack -= amount;
   }
@@ -51,6 +81,7 @@ class Seat {
     this.turn = false;
     this.lastAction = CALL;
   }
+
   winHand(amount) {
     this.bet = 0;
     this.stack += amount;

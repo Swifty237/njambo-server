@@ -7,30 +7,25 @@ const SidePot = require('./SidePot');
 const Player = require('./Player');
 
 class Table {
-  constructor(id, name, price, isPrivate, createdAt) {
+  constructor(id, name, bet, isPrivate, createdAt) {
     this.id = id;
     this.name = name;
-    this.price = price;
+    this.bet = bet;
     this.isPrivate = isPrivate;
     this.createdAt = createdAt;
     this.maxPlayers = 4;
     this.players = [];
     this.seats = this.initSeats(this.maxPlayers);
-    this.board = [];
     this.button = null;
     this.turn = null;
+    this.lastWinningSeat = null;  // Pour garder une trace du dernier gagnant
     this.pot = 0;
     this.callAmount = null;
-    this.smallBlind = this.price;
     this.handOver = true;
     this.winMessages = [];
     this.wentToShowdown = false;
     this.history = [];
     this.deck = null;
-    this.sidePots = [];
-    this.bigBlind = null;
-    this.minRaise = this.price / 100;
-    this.minBet = this.price / 200;
     this.mainPot = 0;
   }
 
@@ -59,8 +54,8 @@ class Table {
     }
     this.seats[seatId] = new Seat(seatId, player, amount, amount);
 
-    // Place initial bet equal to price (small blind)
-    const betAmount = Number(this.price);
+    // Place initial bet equal to bet amount
+    const betAmount = Number(this.bet);
     this.seats[seatId].bet = betAmount;
     this.seats[seatId].stack -= betAmount;
 
@@ -95,9 +90,9 @@ class Table {
 
     const satPlayers = Object.values(this.seats).filter((seat) => seat != null);
 
-    if (satPlayers.length === 1) {
-      this.endWithoutShowdown();
-    }
+    // if (satPlayers.length === 1) {
+    //   this.endWithoutShowdown();
+    // }
 
     if (satPlayers.length === 0) {
       this.resetEmptyTable();
@@ -125,43 +120,78 @@ class Table {
   }
 
   nextUnfoldedPlayer(player, places) {
+    console.log(`Finding next unfolded player from ${player}, places: ${places}`);
     let i = 0;
-    let current = player;
+    let current = parseInt(player); // S'assurer que current est un nombre
+    let loopCount = 0;
+    const maxLoops = this.maxPlayers * 2; // Limiter le nombre de boucles
 
-    while (i < places) {
+    while (i < places && loopCount < maxLoops) {
+      // Calculer le prochain siège en s'assurant qu'il reste dans les limites
       current = current === this.maxPlayers ? 1 : current + 1;
       let seat = this.seats[current];
 
-      if (seat && !seat.folded) i++;
+      console.log(`Checking seat ${current}:`, seat ?
+        `folded=${seat.folded}, cards=${seat.hand.length}` :
+        'empty');
+
+      // Un joueur valide doit avoir des cartes et ne pas être folded
+      if (seat && !seat.folded && seat.hand.length > 0) {
+        i++;
+        console.log(`Found valid player at seat ${current}, count: ${i}`);
+      }
+
+      loopCount++;
+
+      // Si on a fait le tour complet sans trouver de joueur valide
+      if (loopCount >= this.maxPlayers && i === 0) {
+        console.log("No valid players found after checking all seats");
+        return parseInt(player); // Retourner le joueur initial
+      }
     }
+
+    if (loopCount >= maxLoops) {
+      console.log("Warning: Max loop count reached in nextUnfoldedPlayer");
+      return parseInt(player); // Retourner le joueur initial en cas de problème
+    }
+
+    console.log(`nextUnfoldedPlayer returning: ${current}`);
     return current;
   }
 
   nextActivePlayer(player, places) {
     console.log(`nextActivePlayer called with player: ${player}, places: ${places}`);
     let i = 0;
-    let current = parseInt(player); // Convertir en nombre
-    let checkedPositions = new Set();
+    let current = parseInt(player); // S'assurer que current est un nombre
+    let loopCount = 0;
+    const maxLoops = this.maxPlayers * 2; // Limiter le nombre de boucles
 
-    while (i < places && checkedPositions.size < this.maxPlayers) {
-      // Avancer à la position suivante
+    while (i < places && loopCount < maxLoops) {
+      // Calculer le prochain siège en s'assurant qu'il reste dans les limites
       current = current === this.maxPlayers ? 1 : current + 1;
-
-      // Marquer cette position comme vérifiée
-      checkedPositions.add(current);
-
       let seat = this.seats[current];
-      console.log(`Checking seat ${current}:`, seat ? `Player: ${seat.player.name}, sittingOut: ${seat.sittingOut}` : 'Empty');
+
+      console.log(`Checking seat ${current}:`, seat ?
+        `Player: ${seat.player.name}, sittingOut: ${seat.sittingOut}` :
+        'Empty');
 
       if (seat && !seat.sittingOut) {
         i++;
         console.log(`Found active player at seat ${current}, count: ${i}`);
       }
+
+      loopCount++;
+
+      // Si on a fait le tour complet sans trouver de joueur actif
+      if (loopCount >= this.maxPlayers && i === 0) {
+        console.log("No active players found after checking all seats");
+        return parseInt(player); // Retourner le joueur initial
+      }
     }
 
-    if (checkedPositions.size >= this.maxPlayers && i < places) {
-      console.log("Warning: Checked all positions without finding enough active players");
-      return parseInt(player);
+    if (loopCount >= maxLoops) {
+      console.log("Warning: Max loop count reached in nextActivePlayer");
+      return parseInt(player); // Retourner le joueur initial en cas de problème
     }
 
     console.log(`nextActivePlayer returning: ${current}`);
@@ -176,7 +206,7 @@ class Table {
       console.log("Deck created with", this.deck.count(), "cards");
 
       this.wentToShowdown = false;
-      this.resetBoardAndPot();
+      this.resetPot();
       this.clearSeatHands();
       this.resetBetsAndActions();
       this.unfoldPlayers();
@@ -198,8 +228,17 @@ class Table {
         console.log("Multiple players detected, initializing game...");
 
         console.log("Moving button...");
-        this.button = this.nextActivePlayer(this.button, 1);
-        console.log("New button position:", this.button);
+        // Si on a un gagnant de la main précédente, il devient le nouveau dealer
+        if (
+          this.lastWinningSeat &&
+          this.seats[this.lastWinningSeat] &&
+          !this.seats[this.lastWinningSeat].sittingOut) {
+          this.button = this.lastWinningSeat;
+          console.log("New button position (last winner):", this.button);
+        } else {
+          this.button = this.nextActivePlayer(this.button, 1);
+          console.log("New button position (next active):", this.button);
+        }
 
         console.log("Setting blinds...");
         this.setBlinds();
@@ -208,8 +247,8 @@ class Table {
         this.setTurn();
         console.log("Turn set to:", this.turn);
 
-        console.log("Dealing preflop...");
-        this.dealPreflop();
+        console.log("Dealing...");
+        this.dealCard();
 
         console.log("Updating history...");
         this.updateHistory();
@@ -223,16 +262,16 @@ class Table {
     }
   }
 
-  dealPreflop() {
+  dealCard() {
     try {
-      console.log("Starting dealPreflop...");
+      console.log("Starting dealCard...");
       const arr = _.range(1, this.maxPlayers + 1);
       const order = arr.slice(this.button).concat(arr.slice(0, this.button));
       console.log("Deal order:", order);
 
       // deal 5 cards to each seated player
       for (let i = 0; i < 5; i++) {
-        console.log(`Dealing round ${i + 1}...`);
+        // console.log(`Dealing round ${i + 1}...`);
         for (let j = 0; j < order.length; j++) {
           const seat = this.seats[order[j]];
           if (seat && !seat.sittingOut) {
@@ -241,14 +280,14 @@ class Table {
               throw new Error("No card drawn from deck!");
             }
             seat.hand.push(card);
-            console.log(`Dealt ${card.rank} of ${card.suit} to player ${seat.player.name} in seat ${order[j]}`);
+            // console.log(`Dealt ${card.rank} of ${card.suit} to player ${seat.player.name} in seat ${order[j]}`);
             seat.turn = order[j] === this.turn;
           }
         }
       }
-      console.log("Preflop dealing complete");
+      console.log("dealing complete");
     } catch (error) {
-      console.error("Error in dealPreflop:", error);
+      console.error("Error in dealCard:", error);
       throw error;
     }
   }
@@ -261,63 +300,50 @@ class Table {
       }
     }
   }
+
   setTurn() {
     console.log("Setting turn with active players:", this.activePlayers().length);
-    if (this.activePlayers().length <= 3) {
+    if (this.activePlayers().length > 1) {
       console.log("3 or fewer players, setting turn to button:", this.button);
-      this.turn = this.button;
+      this.turn = this.nextActivePlayer(this.button, 1);
     } else {
-      console.log("More than 3 players, finding next active player");
-      this.turn = this.nextActivePlayer(this.button, 3);
+      this.turn = this.activePlayers[0]
     }
     console.log("Turn set to:", this.turn);
   }
+
   setBlinds() {
     console.log("Setting blinds...");
-    const activePlayers = this.activePlayers();
-    const isHeadsUp = activePlayers.length === 2;
-
-    console.log("Active players:", activePlayers.length, "Heads up:", isHeadsUp);
-    console.log("Current button position:", this.button);
 
     try {
-      // Trouver les positions des blinds
-      if (isHeadsUp) {
-        this.smallBlind = parseInt(this.button);
-        this.bigBlind = this.nextActivePlayer(this.button, 1);
-      } else {
-        this.smallBlind = this.nextActivePlayer(this.button, 1);
-        this.bigBlind = this.nextActivePlayer(this.smallBlind, 1); // Utiliser smallBlind comme point de départ
-      }
-
-      console.log("Small blind position:", this.smallBlind);
-      console.log("Big blind position:", this.bigBlind);
+      // Trouver la position du prochain joueur actif
+      // const nextPlayer = this.nextActivePlayer(this.button, 1);
+      // console.log("Next active player position:", nextPlayer);
 
       // Placer les blinds - tous les joueurs actifs placent la même mise
-      const blindAmount = Number(this.price);
+      const betAmount = Number(this.bet);
       const activePlayers = this.activePlayers();
-      let totalBlinds = 0;
+      let totalBets = 0;
 
       console.log("Placing blinds for all active players...");
 
-      // Tous les joueurs actifs placent une blind égale au price
+      // Tous les joueurs actifs placent une blind égale à la mise de départ
       for (let i = 1; i <= this.maxPlayers; i++) {
         const seat = this.seats[i];
         if (seat && !seat.sittingOut) {
-          seat.placeBlind(blindAmount);
-          totalBlinds += blindAmount;
-          console.log(`Player ${seat.player.name} in seat ${i} placed blind: ${blindAmount}`);
+          seat.placeBet(betAmount);
+          totalBets += betAmount;
+          console.log(`Player ${seat.player.name} in seat ${i} placed blind: ${betAmount}`);
         }
       }
 
-      this.pot = Number(this.pot || 0) + totalBlinds;
-      this.callAmount = blindAmount;
-      this.minRaise = blindAmount * 2;
+      this.pot = Number(this.pot || 0) + totalBets;
+      this.callAmount = betAmount;
 
       console.log("Blinds set successfully:", {
         totalPlayers: activePlayers.length,
-        blindAmountPerPlayer: blindAmount,
-        totalBlinds: totalBlinds,
+        betAmountPerPlayer: betAmount,
+        totalBets: totalBets,
         pot: this.pot,
         callAmount: this.callAmount
       });
@@ -326,6 +352,7 @@ class Table {
       throw error;
     }
   }
+
   clearSeats() {
     for (let i of Object.keys(this.seats)) {
       this.seats[i] = null;
@@ -339,6 +366,7 @@ class Table {
       }
     }
   }
+
   clearSeatTurns() {
     for (let i of Object.keys(this.seats)) {
       if (this.seats[i]) {
@@ -346,14 +374,17 @@ class Table {
       }
     }
   }
+
   clearWinMessages() {
     this.winMessages = [];
   }
+
   endHand() {
     this.clearSeatTurns();
     this.handOver = true;
     this.sitOutFeltedPlayers();
   }
+
   sitOutFeltedPlayers() {
     for (let i of Object.keys(this.seats)) {
       const seat = this.seats[i];
@@ -362,44 +393,44 @@ class Table {
       }
     }
   }
-  endWithoutShowdown() {
-    const winner = this.unfoldedPlayers()[0];
-    winner && winner.winHand(this.pot);
-    winner &&
-      this.winMessages.push(
-        `${winner.player.name} wins $${this.pot.toFixed(2)}`,
-      );
-    this.endHand();
-  }
+
+  // endWithoutShowdown() {
+  //   const winner = this.unfoldedPlayers()[0];
+  //   winner && winner.winHand(this.pot);
+  //   winner &&
+  //     this.winMessages.push(
+  //       `${winner.player.name} wins $${this.pot.toFixed(2)}`,
+  //     );
+  //   this.endHand();
+  // }
+
   resetEmptyTable() {
     this.button = null;
     this.turn = null;
     this.handOver = true;
     this.deck = null;
     this.wentToShowdown = false;
-    this.resetBoardAndPot();
+    this.resetPot();
     this.clearWinMessages();
     this.clearSeats();
   }
 
-  resetBoardAndPot() {
-    this.board = [];
+  resetPot() {
     this.pot = 0;
     this.mainPot = 0;
-    this.sidePots = [];
   }
+
   updateHistory() {
     this.history.push({
       pot: +this.pot.toFixed(2),
       mainPot: +this.mainPot.toFixed(2),
-      sidePots: this.sidePots.slice(),
-      board: this.board.slice(),
       seats: this.cleanSeatsForHistory(),
       button: this.button,
       turn: this.turn,
       winMessages: this.winMessages.slice(),
     });
   }
+
   cleanSeatsForHistory() {
     const cleanSeats = JSON.parse(JSON.stringify(this.seats));
     for (let i = 0; i < this.maxPlayers; i++) {
@@ -415,152 +446,119 @@ class Table {
     }
     return cleanSeats;
   }
+
   changeTurn(lastTurn) {
-    this.updateHistory();
+    try {
+      console.log("Changing turn from seat:", lastTurn);
+      this.updateHistory();
 
-    if (this.unfoldedPlayers().length === 1) {
-      this.endWithoutShowdown();
-      return;
-    }
-
-    if (this.actionIsComplete()) {
-      this.calculateSidePots();
-      while (this.board.length <= 5 && !this.handOver) {
-        this.dealNextStreet();
+      // Vérifier que lastTurn est valide
+      if (!lastTurn || lastTurn < 1 || lastTurn > this.maxPlayers) {
+        console.log("Invalid lastTurn:", lastTurn);
+        return;
       }
-    }
 
-    if (this.allCheckedOrCalled()) {
-      this.calculateSidePots();
-      this.dealNextStreet();
-      this.turn = this.handOver
-        ? null
-        : this.nextUnfoldedPlayer(this.button, 1);
-    } else {
-      this.turn = this.nextUnfoldedPlayer(lastTurn, 1);
-    }
+      if (!this.handOver) {
+        console.log("Current state of hands:");
+        Object.entries(this.seats).forEach(([seatId, seat]) => {
+          if (seat) {
+            console.log(`Seat ${seatId}: ${seat.hand.length} cards, folded: ${seat.folded}`);
+          }
+        });
 
-    for (let i = 1; i <= this.maxPlayers; i++) {
-      if (this.seats[i]) {
-        this.seats[i].turn = i === this.turn ? true : false;
-      }
-    }
-  }
-  allCheckedOrCalled() {
-    if (
-      this.seats[this.bigBlind] &&
-      this.seats[this.bigBlind].bet === this.limit / 100 &&
-      !this.seats[this.bigBlind].checked &&
-      this.board.length === 0
-    ) {
-      return false;
-    }
+        // Vérifier si tous les joueurs ont joué toutes leurs cartes
+        const activePlayers = Object.values(this.seats).filter(seat =>
+          seat && !seat.folded && !seat.sittingOut
+        );
 
-    for (let i of Object.keys(this.seats)) {
-      const seat = this.seats[i];
-      if (seat && !seat.folded && seat.stack > 0) {
-        if (
-          (this.callAmount &&
-            seat.bet.toFixed(2) !== this.callAmount.toFixed(2)) ||
-          (!this.callAmount && !seat.checked)
-        ) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-  actionIsComplete() {
-    const seats = Object.values(this.seats);
+        const allPlayersFinished = activePlayers.every(seat => seat.hand.length === 0);
 
-    // everyone but one person is all in and the last person called:
-    const seatsToAct = seats.filter(
-      (seat) => seat && !seat.folded && seat.stack > 0,
-    );
-    if (seatsToAct.length === 0) return true;
-    return seatsToAct.length === 1 && seatsToAct[0].lastAction === 'CALL';
-  }
-  playersAllInThisTurn() {
-    const seats = Object.values(this.seats);
-    return seats.filter(
-      (seat) => seat && !seat.folded && seat.bet > 0 && seat.stack === 0,
-    );
-  }
-  calculateSidePots() {
-    const allInPlayers = this.playersAllInThisTurn();
-    const unfoldedPlayers = this.unfoldedPlayers();
-    if (allInPlayers.length < 1) return;
+        if (allPlayersFinished) {
+          console.log("All players have played all their cards");
+          this.handOver = true;
 
-    let sortedAllInPlayers = allInPlayers.sort((a, b) => a.bet - b.bet);
-    if (
-      sortedAllInPlayers.length > 1 &&
-      sortedAllInPlayers.length === unfoldedPlayers.length
-    ) {
-      sortedAllInPlayers.pop();
-    }
+          // Déterminer le gagnant de la main
+          this.determineMainPotWinner();
 
-    const allInSeatIds = sortedAllInPlayers.map((seat) => seat.id);
-
-    for (const seatId of allInSeatIds) {
-      const allInSeat = this.seats[seatId];
-      const sidePot = new SidePot();
-      if (allInSeat.bet > 0) {
-        for (let i = 1; i <= this.maxPlayers; i++) {
-          const seat = this.seats[i];
-          if (seat && !seat.folded && i !== seatId) {
-            const amountOver = seat.bet - allInSeat.bet;
-            if (amountOver > 0) {
-              if (this.sidePots.length > 0) {
-                this.sidePots[this.sidePots.length - 1].amount -= amountOver;
-              } else {
-                this.pot -= amountOver;
-              }
-              seat.bet -= allInSeat.bet;
-              sidePot.amount += amountOver;
-              sidePot.players.push(seat.id);
+          // Réinitialiser les mains jouées
+          for (let i = 1; i <= this.maxPlayers; i++) {
+            if (this.seats[i]) {
+              this.seats[i].playedHand = [];
             }
           }
-        }
-        allInSeat.bet = 0;
-        this.sidePots.push(sidePot);
-      }
-    }
-  }
-  dealNextStreet() {
-    const length = this.board.length;
-    this.resetBetsAndActions();
-    this.mainPot = this.pot;
-    if (length === 0) {
-      this.dealFlop();
-    } else if (length === 3 || length === 4) {
-      this.dealTurnOrRiver();
-    } else if (length === 5) {
-      this.determineSidePotWinners();
-      this.determineMainPotWinner();
-    }
-  }
-  determineSidePotWinners() {
-    if (this.sidePots.length < 1) return;
 
-    this.sidePots.forEach((sidePot) => {
-      const seats = sidePot.players.map((id) => this.seats[id]);
-      this.determineWinner(sidePot.amount, seats);
-    });
+          return;
+        }
+
+        // Trouver le prochain joueur qui a encore des cartes
+        let nextPlayer = lastTurn;
+        let checkedAllPlayers = false;
+        let loopCount = 0;
+        const maxLoops = this.maxPlayers + 1; // Éviter une boucle infinie
+
+        while (!checkedAllPlayers && loopCount < maxLoops) {
+          nextPlayer = this.nextUnfoldedPlayer(nextPlayer, 1);
+          console.log("Checking next player:", nextPlayer);
+
+          const nextSeat = this.seats[nextPlayer];
+          if (nextSeat) {
+            console.log(`Seat ${nextPlayer} status: cards=${nextSeat.hand.length}, folded=${nextSeat.folded}`);
+          }
+
+          // Si on est revenu au joueur initial ou si on a fait le tour complet
+          if (nextPlayer === lastTurn || loopCount === this.maxPlayers) {
+            console.log("Completed player check cycle");
+            checkedAllPlayers = true;
+          }
+
+          // Si le joueur a encore des cartes, c'est son tour
+          if (nextSeat && !nextSeat.folded && nextSeat.hand.length > 0) {
+            this.turn = nextPlayer;
+            console.log("Found next player:", nextPlayer);
+            break;
+          }
+
+          loopCount++;
+        }
+
+        if (loopCount >= maxLoops) {
+          console.log("Warning: Max loop count reached");
+          this.handOver = true;
+          return;
+        }
+
+        console.log("Next turn set to:", this.turn);
+      }
+
+      // Mettre à jour le tour pour tous les sièges
+      for (let i = 1; i <= this.maxPlayers; i++) {
+        if (this.seats[i]) {
+          this.seats[i].turn = i === this.turn;
+        }
+      }
+    } catch (error) {
+      console.error("Error in changeTurn:", error);
+      this.handOver = true;
+    }
   }
+
   determineMainPotWinner() {
     this.determineWinner(this.pot, Object.values(this.seats).slice());
     this.wentToShowdown = true;
     this.endHand();
   }
+
   determineWinner(amount, seats) {
     const participants = seats
       .filter((seat) => seat && !seat.folded)
       .map((seat) => {
-        const cards = seat.hand.slice().concat(this.board.slice());
+        // Utiliser les cartes jouées au lieu des cartes en main
+        const cards = seat.playedHand.slice();
         const solverCards = this.mapCardsForPokerSolver(cards);
         return {
           seatId: seat.id,
           solverCards,
+          handDesc: `${cards.length} cartes jouées` // Description pour le message de victoire
         };
       });
 
@@ -590,14 +588,18 @@ class Table {
 
       seat.winHand(winAmount);
       if (winAmount > 0) {
+        this.lastWinningSeat = seat.id;  // On sauvegarde le siège gagnant
+        // Trouver la description de la main du gagnant
+        const winner = participants.find(p => p.seatId === seat.id);
         this.winMessages.push(
-          `${seat.player.name} wins $${winAmount.toFixed(2)} with ${handDesc}`,
+          `${seat.player.name} wins $${winAmount.toFixed(2)} (${winner.handDesc})`,
         );
       }
     }
 
     this.updateHistory();
   }
+
   mapCardsForPokerSolver(cards) {
     const newCards = cards.map((card) => {
       const suit = card.suit.slice(0, 1);
@@ -614,6 +616,7 @@ class Table {
     });
     return newCards;
   }
+
   resetBetsAndActions() {
     for (let i = 1; i <= this.maxPlayers; i++) {
       if (this.seats[i]) {
@@ -623,12 +626,11 @@ class Table {
       }
     }
     this.callAmount = null;
-    this.minRaise = this.price / 200;
   }
 
-  dealPreflop() {
+  dealCard() {
     try {
-      console.log("Starting dealPreflop...");
+      console.log("Starting dealCard...");
       const arr = _.range(1, this.maxPlayers + 1);
       const order = arr.slice(this.button).concat(arr.slice(0, this.button));
       console.log("Deal order:", order);
@@ -651,19 +653,21 @@ class Table {
       }
       console.log("Preflop dealing complete");
     } catch (error) {
-      console.error("Error in dealPreflop:", error);
+      console.error("Error in dealCard:", error);
       throw error;
     }
   }
 
-  dealFlop() {
-    for (let i = 0; i < 3; i++) {
-      this.board.push(this.deck.draw());
-    }
-  }
-  dealTurnOrRiver() {
-    this.board.push(this.deck.draw());
-  }
+  // dealFlop() {
+  //   for (let i = 0; i < 3; i++) {
+  //     this.board.push(this.deck.draw());
+  //   }
+  // }
+
+  // dealTurnOrRiver() {
+  //   this.board.push(this.deck.draw());
+  // }
+
   handleFold(socketId) {
     let seat = this.findPlayerBySocketId(socketId);
 
@@ -678,6 +682,7 @@ class Table {
       return null;
     }
   }
+
   handleCall(socketId) {
     let seat = this.findPlayerBySocketId(socketId);
 
@@ -688,12 +693,7 @@ class Table {
           : this.callAmount - seat.bet;
 
       seat.callRaise(this.callAmount);
-
-      if (this.sidePots.length > 0) {
-        this.sidePots[this.sidePots.length - 1].amount += addedToPot;
-      } else {
-        this.pot += addedToPot;
-      }
+      this.pot += addedToPot;
 
       return {
         seatId: seat.id,
@@ -703,6 +703,7 @@ class Table {
       return null;
     }
   }
+
   handleCheck(socketId) {
     let seat = this.findPlayerBySocketId(socketId);
     if (seat) {
@@ -716,6 +717,7 @@ class Table {
       return null;
     }
   }
+
   handleRaise(socketId, amount) {
     let seat = this.findPlayerBySocketId(socketId);
 
@@ -723,16 +725,8 @@ class Table {
       let addedToPot = amount - seat.bet;
 
       seat.raise(amount);
+      this.pot += addedToPot;
 
-      if (this.sidePots.length > 0) {
-        this.sidePots[this.sidePots.length - 1].amount += addedToPot;
-      } else {
-        this.pot += addedToPot;
-      }
-
-      this.minRaise = this.callAmount
-        ? this.callAmount + (seat.bet - this.callAmount) * 2
-        : seat.bet * 2;
       this.callAmount = amount;
 
       return {
