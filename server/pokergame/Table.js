@@ -26,7 +26,12 @@ class Table {
     this.wentToShowdown = false;
     this.history = [];
     this.deck = null;
-    this.mainPot = 0;
+    this.turnTimer = null;        // Timer pour le tour actuel
+    this.turnTime = 15000;        // Temps en millisecondes pour jouer (15 secondes)
+    this.demandedSuit = null;     // Couleur demandée pour le tour actuel
+    this.currentRoundCards = [];   // Cartes jouées dans le tour actuel
+    this.roundNumber = 1;
+    this.countHand = 0;         // Numéro du tour actuel (1-5)
   }
 
   initSeats(maxPlayers) {
@@ -52,22 +57,18 @@ class Table {
     if (this.seats[seatId]) {
       return;
     }
+
     this.seats[seatId] = new Seat(seatId, player, amount, amount);
+    this.seats[seatId].bet = 0;
 
-    // Place initial bet equal to bet amount
-    const betAmount = Number(this.bet);
-    this.seats[seatId].bet = betAmount;
-    this.seats[seatId].stack -= betAmount;
-
-    const firstPlayer =
-      Object.values(this.seats).filter((seat) => seat != null).length === 1;
+    const firstPlayer = Object.values(this.seats).filter((seat) => seat != null).length === 1;
 
     this.button = firstPlayer ? seatId : this.button;
 
     console.log("Player seated:", {
       seatId,
       playerName: player.name,
-      initialBet: betAmount,
+      initialBet: this.seats[seatId].bet,
       remainingStack: this.seats[seatId].stack
     });
   }
@@ -90,9 +91,9 @@ class Table {
 
     const satPlayers = Object.values(this.seats).filter((seat) => seat != null);
 
-    // if (satPlayers.length === 1) {
-    //   this.endWithoutShowdown();
-    // }
+    if (satPlayers.length === 1) {
+      // this.endWithoutShowdown();
+    }
 
     if (satPlayers.length === 0) {
       this.resetEmptyTable();
@@ -119,83 +120,54 @@ class Table {
     );
   }
 
-  nextUnfoldedPlayer(player, places) {
-    console.log(`Finding next unfolded player from ${player}, places: ${places}`);
-    let i = 0;
-    let current = parseInt(player); // S'assurer que current est un nombre
-    let loopCount = 0;
-    const maxLoops = this.maxPlayers * 2; // Limiter le nombre de boucles
-
-    while (i < places && loopCount < maxLoops) {
-      // Calculer le prochain siège en s'assurant qu'il reste dans les limites
-      current = current === this.maxPlayers ? 1 : current + 1;
-      let seat = this.seats[current];
-
-      console.log(`Checking seat ${current}:`, seat ?
-        `folded=${seat.folded}, cards=${seat.hand.length}` :
-        'empty');
-
-      // Un joueur valide doit avoir des cartes et ne pas être folded
-      if (seat && !seat.folded && seat.hand.length > 0) {
-        i++;
-        console.log(`Found valid player at seat ${current}, count: ${i}`);
-      }
-
-      loopCount++;
-
-      // Si on a fait le tour complet sans trouver de joueur valide
-      if (loopCount >= this.maxPlayers && i === 0) {
-        console.log("No valid players found after checking all seats");
-        return parseInt(player); // Retourner le joueur initial
-      }
-    }
-
-    if (loopCount >= maxLoops) {
-      console.log("Warning: Max loop count reached in nextUnfoldedPlayer");
-      return parseInt(player); // Retourner le joueur initial en cas de problème
-    }
-
-    console.log(`nextUnfoldedPlayer returning: ${current}`);
-    return current;
-  }
-
   nextActivePlayer(player, places) {
-    console.log(`nextActivePlayer called with player: ${player}, places: ${places}`);
-    let i = 0;
-    let current = parseInt(player); // S'assurer que current est un nombre
-    let loopCount = 0;
-    const maxLoops = this.maxPlayers * 2; // Limiter le nombre de boucles
-
-    while (i < places && loopCount < maxLoops) {
-      // Calculer le prochain siège en s'assurant qu'il reste dans les limites
-      current = current === this.maxPlayers ? 1 : current + 1;
-      let seat = this.seats[current];
-
-      console.log(`Checking seat ${current}:`, seat ?
-        `Player: ${seat.player.name}, sittingOut: ${seat.sittingOut}` :
-        'Empty');
-
-      if (seat && !seat.sittingOut) {
-        i++;
-        console.log(`Found active player at seat ${current}, count: ${i}`);
-      }
-
-      loopCount++;
-
-      // Si on a fait le tour complet sans trouver de joueur actif
-      if (loopCount >= this.maxPlayers && i === 0) {
-        console.log("No active players found after checking all seats");
-        return parseInt(player); // Retourner le joueur initial
-      }
+    // S'assurer que player est un nombre valide
+    if (!player || isNaN(player)) {
+      console.log("Invalid player position, returning 1");
+      return 1;
     }
 
-    if (loopCount >= maxLoops) {
-      console.log("Warning: Max loop count reached in nextActivePlayer");
-      return parseInt(player); // Retourner le joueur initial en cas de problème
+    // Convertir en nombre et s'assurer qu'il est dans les limites
+    let playerNum = parseInt(player);
+    if (playerNum < 1 || playerNum > this.maxPlayers) {
+      console.log("Player position out of bounds, returning 1");
+      return 1;
     }
 
-    console.log(`nextActivePlayer returning: ${current}`);
-    return current;
+    console.log(`nextActivePlayer called with player: ${playerNum}, places: ${places}`);
+
+    // Vérifier s'il y a plus d'un joueur actif
+    const activePlayers = this.activePlayers();
+    if (activePlayers.length <= 1) {
+      console.log("Not enough active players");
+      return parseInt(playerNum);
+    }
+
+    // Construire un tableau des seatId des joueurs actifs (en tant que nombres)
+    const activePlayerIds = activePlayers.map(seat => parseInt(seat.id));
+    console.log("Active player IDs:", activePlayerIds);
+
+    // Garder la position de départ
+    const startingSeat = parseInt(playerNum);
+    let currentSeat = parseInt(playerNum);
+
+    // Boucle pour trouver le prochain joueur actif
+    do {
+      // Calculer le prochain siège avec wrap-around
+      currentSeat = currentSeat === this.maxPlayers ? 1 : currentSeat + 1;
+
+      // Si on trouve un joueur actif, le retourner
+      if (activePlayerIds.includes(currentSeat)) {
+        console.log(`Found active player at seat ${currentSeat}`);
+        return parseInt(currentSeat);
+      }
+
+      console.log(`Seat ${currentSeat} not active, trying next seat`);
+    } while (currentSeat !== startingSeat); // Continue jusqu'à ce qu'on revienne au départ
+
+    // Si on a fait le tour complet sans trouver de joueur actif, retourner le joueur initial
+    console.log("Made full circle, returning initial player");
+    return parseInt(playerNum);
   }
 
   startHand() {
@@ -208,11 +180,19 @@ class Table {
       this.wentToShowdown = false;
       this.resetPot();
       this.clearSeatHands();
+      this.clearSeatPlayedHands();
       this.resetBetsAndActions();
       this.unfoldPlayers();
       this.history = [];
+      this.turn = null;
 
-      console.log("Active players:", this.activePlayers().length);
+      // Initialiser les variables pour le nouveau système de jeu
+      this.demandedSuit = null;
+      this.currentRoundCards = [];
+      this.roundNumber = 1;
+
+      const activePlayers = this.activePlayers();
+      console.log("Active players:", activePlayers.length);
       console.log("Current button:", this.button);
       console.log("Current seats state:", Object.values(this.seats).map(seat =>
         seat ? {
@@ -223,21 +203,26 @@ class Table {
           folded: seat.folded
         } : null
       ));
+      console.log("Number hands play: ", this.countHand);
 
-      if (this.activePlayers().length > 1) {
+      if (activePlayers.length > 1) {
         console.log("Multiple players detected, initializing game...");
 
-        console.log("Moving button...");
-        // Si on a un gagnant de la main précédente, il devient le nouveau dealer
-        if (
-          this.lastWinningSeat &&
-          this.seats[this.lastWinningSeat] &&
-          !this.seats[this.lastWinningSeat].sittingOut) {
-          this.button = this.lastWinningSeat;
-          console.log("New button position (last winner):", this.button);
-        } else {
-          this.button = this.nextActivePlayer(this.button, 1);
-          console.log("New button position (next active):", this.button);
+        if (this.countHand !== 0) {
+          console.log("Moving button...");
+          // Si on a un gagnant de la main précédente, il devient le nouveau dealer
+          if (
+            this.lastWinningSeat &&
+            this.seats[this.lastWinningSeat] &&
+            !this.seats[this.lastWinningSeat].sittingOut) {
+            this.button = this.lastWinningSeat;
+            console.log("New button position (last winner):", this.button);
+          } else {
+            // S'assurer que this.button est un nombre valide avant d'appeler nextActivePlayer
+            const currentButton = parseInt(this.button) || 1;
+            this.button = this.nextActivePlayer(currentButton, 1);
+            console.log("New button position (next active):", this.button);
+          }
         }
 
         console.log("Setting blinds...");
@@ -255,6 +240,8 @@ class Table {
 
         this.handOver = false;
         console.log("Hand started successfully");
+
+        this.countHand++;
       }
     } catch (error) {
       console.error("Error in startHand:", error);
@@ -303,23 +290,26 @@ class Table {
 
   setTurn() {
     console.log("Setting turn with active players:", this.activePlayers().length);
+
     if (this.activePlayers().length > 1) {
-      console.log("3 or fewer players, setting turn to button:", this.button);
-      this.turn = this.nextActivePlayer(this.button, 1);
+      if (this.countHand === 0) {
+        this.turn = parseInt(this.button);
+      } else {
+        this.turn = this.nextActivePlayer(this.turn, 1);
+      }
     } else {
-      this.turn = this.activePlayers[0]
+      this.turn = parseInt(this.activePlayers()[0].id);
     }
     console.log("Turn set to:", this.turn);
+
+    // Mettre à jour le tour pour tous les sièges
+    this.updateSeatsForNewTurn();
   }
 
   setBlinds() {
     console.log("Setting blinds...");
 
     try {
-      // Trouver la position du prochain joueur actif
-      // const nextPlayer = this.nextActivePlayer(this.button, 1);
-      // console.log("Next active player position:", nextPlayer);
-
       // Placer les blinds - tous les joueurs actifs placent la même mise
       const betAmount = Number(this.bet);
       const activePlayers = this.activePlayers();
@@ -367,6 +357,15 @@ class Table {
     }
   }
 
+  clearSeatPlayedHands() {
+    for (let i of Object.keys(this.seats)) {
+      if (this.seats[i]) {
+        this.seats[i].playedHand = [];
+      }
+    }
+  }
+
+
   clearSeatTurns() {
     for (let i of Object.keys(this.seats)) {
       if (this.seats[i]) {
@@ -394,16 +393,6 @@ class Table {
     }
   }
 
-  // endWithoutShowdown() {
-  //   const winner = this.unfoldedPlayers()[0];
-  //   winner && winner.winHand(this.pot);
-  //   winner &&
-  //     this.winMessages.push(
-  //       `${winner.player.name} wins $${this.pot.toFixed(2)}`,
-  //     );
-  //   this.endHand();
-  // }
-
   resetEmptyTable() {
     this.button = null;
     this.turn = null;
@@ -413,17 +402,338 @@ class Table {
     this.resetPot();
     this.clearWinMessages();
     this.clearSeats();
+    this.clearTurnTimer();
+    this.demandedSuit = null;
+    this.currentRoundCards = [];
+    this.roundNumber = 0;
+  }
+
+  // Trouver la carte la plus haute d'une couleur donnée
+  findHighestCardOfSuit(cards, suit) {
+    const ranks = ['3', '4', '5', '6', '7', '8', '9', '10', 'J'];
+    const suitCards = cards.filter(card => card.suit === suit);
+
+    if (suitCards.length === 0) return null;
+
+    return suitCards.reduce((highest, current) => {
+      return ranks.indexOf(current.rank) > ranks.indexOf(highest.rank) ? current : highest;
+    });
+  }
+
+  // Vérifier si un joueur a une carte de la couleur demandée
+  hasCardOfSuit(seatId, suit) {
+    const seat = this.seats[seatId];
+    return seat && seat.hand.some(card => card.suit === suit);
+  }
+
+  // Démarrer un nouveau tour
+  startNewRound() {
+    this.roundNumber++;
+    console.log(`\n=== Starting Round ${this.roundNumber} ===`);
+
+    // Vérifier si c'est le dernier tour (5ème tour)
+    if (this.roundNumber > 5) {
+      console.log("Maximum rounds reached (5) - Game will end after this round");
+      this.handOver = true;
+      return;
+    }
+
+    // Nettoyer le timer existant
+    this.clearTurnTimer();
+
+    // Réinitialiser les variables du tour
+    this.currentRoundCards = [];
+    this.demandedSuit = null;
+
+    // Afficher l'état des mains des joueurs
+    console.log("Players' hands at start of round:");
+    const activePlayers = this.activePlayers().filter(seat => seat.hand.length > 0);
+    activePlayers.forEach(seat => {
+      console.log(`Seat ${seat.id}: ${seat.hand.length} cards remaining`);
+    });
+
+    // Vérifier s'il reste des joueurs actifs avec des cartes
+    if (activePlayers.length < 2) {
+      console.log("Not enough active players with cards - ending hand");
+      this.handOver = true;
+      return;
+    }
+
+    // Mettre à jour le tour pour tous les sièges
+    const currentTurn = parseInt(this.turn);
+    for (let i = 1; i <= this.maxPlayers; i++) {
+      if (this.seats[i]) {
+        this.seats[i].turn = i === currentTurn;
+      }
+    }
+
+    console.log(`Current turn: Seat ${this.turn}`);
+
+    // Démarrer le timer pour le premier joueur du tour
+    if (this.turn && !this.handOver) {
+      this.startTurnTimer(
+        this.turn,
+        (seatId) => {
+          const result = this.playRandomCard(seatId);
+          if (result) {
+            this.changeTurn(seatId);
+          }
+        });
+    }
+  }
+
+  // Trouver le gagnant du tour actuel
+  findRoundWinner() {
+    console.log("\n=== Finding Round Winner ===");
+    console.log("Current round cards:", this.currentRoundCards);
+    console.log("Demanded suit:", this.demandedSuit);
+    console.log("Round number:", this.roundNumber);
+
+    if (this.currentRoundCards.length === 0) {
+      console.log("No cards played this round");
+      return null;
+    }
+
+    // Le premier joueur du tour
+    const firstPlayer = this.currentRoundCards[0].seatId;
+    console.log("First player of the round:", firstPlayer);
+
+    // Vérifier si tous les joueurs actifs ont joué
+    const activePlayers = this.activePlayers().filter(seat => seat.hand.length > 0 || this.currentRoundCards.some(card => card.seatId === seat.id));
+    const playersWhoPlayed = this.currentRoundCards.map(card => card.seatId);
+
+    console.log("Active players:", activePlayers.map(p => p.id));
+    console.log("Players who played:", playersWhoPlayed);
+
+    if (!activePlayers.every(seat => playersWhoPlayed.includes(seat.id))) {
+      console.log("Not all players have played yet");
+      return null;
+    }
+
+    // Trouver toutes les cartes de la couleur demandée
+    const suitCards = this.currentRoundCards.filter(card => card.card.suit === this.demandedSuit);
+    console.log("Cards of demanded suit:", suitCards);
+
+    // Si aucune carte n'est de la couleur demandée, le premier joueur gagne automatiquement
+    if (suitCards.length === 0) {
+      console.log(`No cards of demanded suit (${this.demandedSuit}), first player (${firstPlayer}) wins the round`);
+      return firstPlayer;
+    }
+
+    // Trouver la carte la plus haute parmi les cartes de la couleur demandée
+    const ranks = ['3', '4', '5', '6', '7', '8', '9', '10'];
+    let highestCard = suitCards[0];
+    let highestRank = ranks.indexOf(highestCard.card.rank);
+
+    for (let i = 1; i < suitCards.length; i++) {
+      const currentRank = ranks.indexOf(suitCards[i].card.rank);
+      console.log(`Comparing ${suitCards[i].card.rank} (${currentRank}) vs ${highestCard.card.rank} (${highestRank})`);
+
+      if (currentRank > highestRank) {
+        highestCard = suitCards[i];
+        highestRank = currentRank;
+      }
+    }
+
+    console.log(`Round winner is seat ${highestCard.seatId} with ${highestCard.card.rank} of ${highestCard.card.suit}`);
+
+    // Si c'est le dernier tour (5ème), ce gagnant sera le gagnant de la partie
+    if (this.roundNumber >= 5) {
+      console.log("This is the final round - winner will win the game");
+      this.lastWinningSeat = highestCard.seatId;
+    }
+    return highestCard.seatId;
+  }
+
+  // Vérifier si un tour est terminé
+  isRoundComplete() {
+    console.log("\n=== Checking if round is complete ===");
+
+    // Obtenir tous les joueurs actifs au début du tour
+    const activePlayers = this.activePlayers();
+    const playersWithCards = activePlayers.filter(seat => seat.hand.length > 0);
+    console.log("Active players at start of round:", playersWithCards.map(seat => seat.id));
+
+    // Obtenir les joueurs qui ont joué ce tour
+    const playersWhoPlayed = this.currentRoundCards.map(card => card.seatId);
+    console.log("Players who played this round:", playersWhoPlayed);
+
+    // Un tour est complet quand tous les joueurs actifs au début du tour ont joué
+    const allPlayersPlayed = playersWithCards.every(seat =>
+      playersWhoPlayed.includes(seat.id)
+    );
+
+    console.log("Round complete?", allPlayersPlayed);
+    console.log("Current round cards:", this.currentRoundCards);
+
+    return allPlayersPlayed && playersWhoPlayed.length === playersWithCards.length;
+  }
+
+  // Méthodes pour gérer le timer de tour
+  startTurnTimer(seatId, callback) {
+    // Vérifier si le siège est toujours valide
+    if (!this.seats[seatId] || this.handOver) {
+      console.log(`Cannot start timer - invalid seat ${seatId} or hand is over`);
+      return;
+    }
+
+    // S'assurer qu'il n'y a pas de timer actif
+    this.clearTurnTimer();
+
+    console.log(`Starting turn timer for seat ${seatId} - ${this.turnTime / 1000} seconds`);
+
+    // Créer un nouveau timer
+    this.turnTimer = setTimeout(() => {
+      // Vérifier à nouveau si le siège est toujours valide
+      if (this.seats[seatId] && !this.handOver && this.turn === seatId) {
+        console.log(`Time's up for seat ${seatId}! Playing random card.`);
+        if (callback) {
+          callback(seatId);
+        }
+      }
+      this.turnTimer = null;
+    }, this.turnTime);
+  }
+
+  clearTurnTimer() {
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+      console.log("Turn timer cleared");
+    }
+  }
+
+  // Trouver la carte la plus haute d'une couleur donnée parmi les cartes jouées
+  findHighestPlayedCard(suit) {
+    console.log("\n=== Finding Highest Card ===");
+    console.log("Looking for suit:", suit);
+    console.log("Cards played:", this.currentRoundCards);
+
+    const suitCards = this.currentRoundCards.filter(card => card.card.suit === suit);
+    console.log("Cards of suit:", suitCards);
+
+    if (suitCards.length === 0) {
+      console.log("No cards of suit found");
+      return null;
+    }
+
+    const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    let highest = suitCards[0];
+    let highestRank = ranks.indexOf(highest.card.rank);
+
+    for (let i = 1; i < suitCards.length; i++) {
+      const currentRank = ranks.indexOf(suitCards[i].card.rank);
+      console.log(`Comparing ${suitCards[i].card.rank} (${currentRank}) vs ${highest.card.rank} (${highestRank})`);
+
+      if (currentRank > highestRank) {
+        highest = suitCards[i];
+        highestRank = currentRank;
+      }
+    }
+
+    console.log(`Highest card: ${highest.card.rank} of ${highest.card.suit} from seat ${highest.seatId}`);
+    return highest;
+  }
+
+  // Vérifier si une carte peut être jouée selon les règles
+  canPlayCard(seatId, card) {
+    console.log(`\n=== Checking if card can be played ===`);
+    console.log(`Seat ${seatId} wants to play: ${card.rank} of ${card.suit}`);
+    console.log(`Current round cards: ${this.currentRoundCards.length}`);
+    console.log(`Demanded suit: ${this.demandedSuit}`);
+
+    // Premier joueur du tour peut jouer n'importe quelle carte
+    if (this.currentRoundCards.length === 0) {
+      console.log("First player of round - can play any card");
+      return true;
+    }
+
+    // Si le joueur a une carte de la couleur demandée, il doit la jouer
+    if (this.hasCardOfSuit(seatId, this.demandedSuit)) {
+      const canPlay = card.suit === this.demandedSuit;
+      console.log(`Player has cards of demanded suit (${this.demandedSuit}) - must follow suit: ${canPlay}`);
+      return canPlay;
+    }
+
+    // Si le joueur n'a pas la couleur demandée, il peut jouer n'importe quelle carte
+    console.log(`Player doesn't have cards of demanded suit (${this.demandedSuit}) - can play any card`);
+    return true;
+  }
+
+  playRandomCard(seatId, callback) {
+    console.log("\n=== Playing Random Card ===");
+    console.log(`Attempting to play card for seat ${seatId}`);
+
+    const seat = this.seats[seatId];
+    if (!seat || seat.hand.length === 0) {
+      console.log(`Invalid seat or no cards in hand`);
+      return null;
+    }
+
+    let cardToPlay;
+    const isFirstPlayer = this.currentRoundCards.length === 0;
+
+    // Si c'est le premier joueur du tour
+    if (isFirstPlayer) {
+      cardToPlay = seat.hand[0]; // Jouer la première carte
+      this.demandedSuit = cardToPlay.suit; // Définir la couleur demandée
+      console.log(`First player - setting demanded suit to: ${cardToPlay.suit}`);
+    } else {
+      // Chercher une carte de la couleur demandée
+      const validCards = seat.hand.filter(card => card.suit === this.demandedSuit);
+      console.log(`Looking for cards of suit ${this.demandedSuit}:`, validCards);
+
+      if (validCards.length > 0) {
+        // Jouer la plus haute carte de la couleur demandée
+        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        cardToPlay = validCards.reduce((highest, current) => {
+          return ranks.indexOf(current.rank) > ranks.indexOf(highest.rank) ? current : highest;
+        });
+        console.log(`Playing highest card of demanded suit:`, cardToPlay);
+      } else {
+        // Si pas de carte de la couleur demandée, jouer la plus basse carte
+        cardToPlay = seat.hand[0];
+        console.log(`No cards of demanded suit, playing:`, cardToPlay);
+      }
+    }
+
+    console.log(`Playing card for seat ${seatId}:`, cardToPlay);
+
+    // Jouer la carte
+    seat.playOneCard(cardToPlay);
+
+    // Créer l'objet carte jouée
+    const playedCard = {
+      seatId: seatId,
+      card: cardToPlay
+    };
+
+    // Ajouter la carte jouée à l'historique du tour
+    this.currentRoundCards.push(playedCard);
+
+    console.log(`Current round cards:`, this.currentRoundCards);
+    console.log(`Demanded suit: ${this.demandedSuit}`);
+    console.log(`Cards remaining in hand: ${seat.hand.length}`);
+
+    // Appeler le callback pour continuer le jeu
+    if (callback) {
+      callback(seatId);
+    }
+
+    // Retourner la carte jouée pour que le socket puisse émettre PLAYED_CARD
+    return {
+      card: cardToPlay,
+      nextSeatId: this.turn
+    };
   }
 
   resetPot() {
     this.pot = 0;
-    this.mainPot = 0;
   }
 
   updateHistory() {
     this.history.push({
       pot: +this.pot.toFixed(2),
-      mainPot: +this.mainPot.toFixed(2),
       seats: this.cleanSeatsForHistory(),
       button: this.button,
       turn: this.turn,
@@ -449,92 +759,85 @@ class Table {
 
   changeTurn(lastTurn) {
     try {
-      console.log("Changing turn from seat:", lastTurn);
-      this.updateHistory();
+      console.log("\n=== Changing Turn ===");
+      console.log("Last turn:", lastTurn);
+      // this.updateHistory();
 
-      // Vérifier que lastTurn est valide
-      if (!lastTurn || lastTurn < 1 || lastTurn > this.maxPlayers) {
-        console.log("Invalid lastTurn:", lastTurn);
+      // Nettoyer le timer du tour précédent
+      this.clearTurnTimer();
+
+      if (this.handOver) {
+        console.log("Hand is over - no more turns");
         return;
       }
 
-      if (!this.handOver) {
-        console.log("Current state of hands:");
-        Object.entries(this.seats).forEach(([seatId, seat]) => {
-          if (seat) {
-            console.log(`Seat ${seatId}: ${seat.hand.length} cards, folded: ${seat.folded}`);
-          }
-        });
+      // Afficher l'état actuel des mains
+      console.log("Current state of hands:");
+      Object.entries(this.seats).forEach(([seatId, seat]) => {
+        if (seat) {
+          console.log(`Seat ${seatId}: ${seat.hand.length} cards, folded: ${seat.folded}`);
+        }
+      });
+
+      // Vérifier si le tour actuel est terminé
+      if (this.isRoundComplete()) {
+        console.log("Round is complete - determining winner...");
+        const roundWinner = this.findRoundWinner();
+        console.log(`Round winner determined: ${roundWinner}`);
 
         // Vérifier si tous les joueurs ont joué toutes leurs cartes
-        const activePlayers = Object.values(this.seats).filter(seat =>
-          seat && !seat.folded && !seat.sittingOut
-        );
+        const activePlayers = this.activePlayers();
+        const playersWithCards = activePlayers.filter(seat => seat.hand.length > 0);
+        console.log("Players with cards remaining:", playersWithCards.map(p => p.id));
 
-        const allPlayersFinished = activePlayers.every(seat => seat.hand.length === 0);
+        if (this.roundNumber > 5) {
+          console.log("Game over condition met:");
+          console.log("- Players with cards:", playersWithCards.length);
+          console.log("- Round number:", this.roundNumber);
 
-        if (allPlayersFinished) {
-          console.log("All players have played all their cards");
           this.handOver = true;
-
-          // Déterminer le gagnant de la main
-          this.determineMainPotWinner();
-
-          // Réinitialiser les mains jouées
-          for (let i = 1; i <= this.maxPlayers; i++) {
-            if (this.seats[i]) {
-              this.seats[i].playedHand = [];
-            }
-          }
-
+          this.lastWinningSeat = roundWinner;
+          this.determinePotWinner();
           return;
         }
 
-        // Trouver le prochain joueur qui a encore des cartes
-        let nextPlayer = lastTurn;
-        let checkedAllPlayers = false;
-        let loopCount = 0;
-        const maxLoops = this.maxPlayers + 1; // Éviter une boucle infinie
+        // Démarrer un nouveau tour avec le gagnant comme premier joueur
+        this.turn = parseInt(roundWinner);
+        this.startNewRound();
+        console.log(`Starting round ${this.roundNumber} with winner of last round (${roundWinner})`);
 
-        while (!checkedAllPlayers && loopCount < maxLoops) {
-          nextPlayer = this.nextUnfoldedPlayer(nextPlayer, 1);
-          console.log("Checking next player:", nextPlayer);
-
-          const nextSeat = this.seats[nextPlayer];
-          if (nextSeat) {
-            console.log(`Seat ${nextPlayer} status: cards=${nextSeat.hand.length}, folded=${nextSeat.folded}`);
-          }
-
-          // Si on est revenu au joueur initial ou si on a fait le tour complet
-          if (nextPlayer === lastTurn || loopCount === this.maxPlayers) {
-            console.log("Completed player check cycle");
-            checkedAllPlayers = true;
-          }
-
-          // Si le joueur a encore des cartes, c'est son tour
-          if (nextSeat && !nextSeat.folded && nextSeat.hand.length > 0) {
-            this.turn = nextPlayer;
-            console.log("Found next player:", nextPlayer);
-            break;
-          }
-
-          loopCount++;
-        }
-
-        if (loopCount >= maxLoops) {
-          console.log("Warning: Max loop count reached");
-          this.handOver = true;
-          return;
-        }
-
-        console.log("Next turn set to:", this.turn);
+        // Mettre à jour le tour pour tous les sièges
+        this.updateSeatsForNewTurn();
+        return;
       }
 
-      // Mettre à jour le tour pour tous les sièges
-      for (let i = 1; i <= this.maxPlayers; i++) {
-        if (this.seats[i]) {
-          this.seats[i].turn = i === this.turn;
-        }
+      // Si le tour n'est pas terminé, passer au joueur suivant
+      let nextPlayer = this.nextActivePlayer(lastTurn, 1);
+      console.log("Next player in current round:", nextPlayer);
+
+      if (nextPlayer && this.seats[nextPlayer] && this.seats[nextPlayer].hand.length > 0) {
+        // Nettoyer l'ancien timer avant de changer de tour
+        this.clearTurnTimer();
+
+        this.turn = parseInt(nextPlayer);
+        console.log("Setting turn to:", this.turn);
+
+        // Mettre à jour le tour pour tous les sièges
+        this.updateSeatsForNewTurn();
+
+        // Démarrer le timer pour le nouveau joueur
+        this.startTurnTimer(
+          this.turn,
+          (seatId) => {
+            const result = this.playRandomCard(seatId);
+            if (result) {
+              this.changeTurn(seatId);
+            }
+          });
+
+      } else {
+        console.log("No valid next player found - ending hand");
+        this.handOver = true;
       }
     } catch (error) {
       console.error("Error in changeTurn:", error);
@@ -542,79 +845,38 @@ class Table {
     }
   }
 
-  determineMainPotWinner() {
-    this.determineWinner(this.pot, Object.values(this.seats).slice());
-    this.wentToShowdown = true;
-    this.endHand();
+  // Mettre à jour le tour pour tous les sièges
+  updateSeatsForNewTurn() {
+    // S'assurer que this.turn est un nombre
+    const currentTurn = parseInt(this.turn);
+
+    for (let i = 1; i <= this.maxPlayers; i++) {
+      if (this.seats[i]) {
+        // Comparer les nombres pour éviter les problèmes de type
+        this.seats[i].turn = i === currentTurn;
+
+        console.log(`i : ${i}`);
+        console.log(`seatId : ${this.seats[i].id}`);
+        console.log(`seat turn : ${this.seats[i].turn}`);
+        console.log(`Table turn : ${this.turn} (parsed: ${currentTurn})`);
+      }
+    }
+    console.log(`Turn updated for all seats. Current turn: ${this.turn}`);
   }
 
-  determineWinner(amount, seats) {
-    const participants = seats
-      .filter((seat) => seat && !seat.folded)
-      .map((seat) => {
-        // Utiliser les cartes jouées au lieu des cartes en main
-        const cards = seat.playedHand.slice();
-        const solverCards = this.mapCardsForPokerSolver(cards);
-        return {
-          seatId: seat.id,
-          solverCards,
-          handDesc: `${cards.length} cartes jouées` // Description pour le message de victoire
-        };
-      });
-
-    const findHandOwner = (cards) => {
-      const participant = participants.find((participant) =>
-        lodash.isEqual(participant.solverCards.sort(), cards),
-      );
-      return participant.seatId;
-    };
-
-    const solverWinners = Hand.winners(
-      participants.map((p) => Hand.solve(p.solverCards)),
-    );
-
-    const winners = solverWinners.map((winner) => {
-      const winningCards = winner.cardPool
-        .map((card) => card.value + card.suit)
-        .sort();
-      const seatId = findHandOwner(winningCards);
-      return [seatId, winner.descr];
-    });
-
-    for (let i = 0; i < winners.length; i++) {
-      const seat = this.seats[winners[i][0]];
-      const handDesc = winners[i][1];
-      const winAmount = amount / winners.length;
-
-      seat.winHand(winAmount);
-      if (winAmount > 0) {
-        this.lastWinningSeat = seat.id;  // On sauvegarde le siège gagnant
-        // Trouver la description de la main du gagnant
-        const winner = participants.find(p => p.seatId === seat.id);
+  determinePotWinner() {
+    // Le gagnant est le dernier joueur qui aurait commencé le tour suivant
+    if (this.lastWinningSeat) {
+      const winner = this.seats[this.lastWinningSeat];
+      if (winner) {
+        winner.winHand(this.pot);
         this.winMessages.push(
-          `${seat.player.name} wins $${winAmount.toFixed(2)} (${winner.handDesc})`,
+          `${winner.player.name} wins $${this.pot.toFixed(2)}`
         );
       }
     }
-
-    this.updateHistory();
-  }
-
-  mapCardsForPokerSolver(cards) {
-    const newCards = cards.map((card) => {
-      const suit = card.suit.slice(0, 1);
-      let rank;
-      if (card.rank === '10') {
-        rank = 'T';
-      } else {
-        rank =
-          card.rank.length > 1
-            ? card.rank.slice(0, 1).toUpperCase()
-            : card.rank;
-      }
-      return rank + suit;
-    });
-    return newCards;
+    this.wentToShowdown = true;
+    this.endHand();
   }
 
   resetBetsAndActions() {
@@ -633,11 +895,9 @@ class Table {
       console.log("Starting dealCard...");
       const arr = _.range(1, this.maxPlayers + 1);
       const order = arr.slice(this.button).concat(arr.slice(0, this.button));
-      console.log("Deal order:", order);
 
       // deal 5 cards to each seated player
       for (let i = 0; i < 5; i++) {
-        console.log(`Dealing round ${i + 1}...`);
         for (let j = 0; j < order.length; j++) {
           const seat = this.seats[order[j]];
           if (seat && !seat.sittingOut) {
@@ -651,56 +911,10 @@ class Table {
           }
         }
       }
-      console.log("Preflop dealing complete");
+      console.log("Dealing complete");
     } catch (error) {
       console.error("Error in dealCard:", error);
       throw error;
-    }
-  }
-
-  // dealFlop() {
-  //   for (let i = 0; i < 3; i++) {
-  //     this.board.push(this.deck.draw());
-  //   }
-  // }
-
-  // dealTurnOrRiver() {
-  //   this.board.push(this.deck.draw());
-  // }
-
-  handleFold(socketId) {
-    let seat = this.findPlayerBySocketId(socketId);
-
-    if (seat) {
-      seat.fold();
-
-      return {
-        seatId: seat.id,
-        message: `${seat.player.name} folds`,
-      };
-    } else {
-      return null;
-    }
-  }
-
-  handleCall(socketId) {
-    let seat = this.findPlayerBySocketId(socketId);
-
-    if (seat) {
-      let addedToPot =
-        this.callAmount > seat.stack + seat.bet
-          ? seat.stack
-          : this.callAmount - seat.bet;
-
-      seat.callRaise(this.callAmount);
-      this.pot += addedToPot;
-
-      return {
-        seatId: seat.id,
-        message: `${seat.player.name} calls $${addedToPot.toFixed(2)}`,
-      };
-    } else {
-      return null;
     }
   }
 
@@ -712,26 +926,6 @@ class Table {
       return {
         seatId: seat.id,
         message: `${seat.player.name} checks`,
-      };
-    } else {
-      return null;
-    }
-  }
-
-  handleRaise(socketId, amount) {
-    let seat = this.findPlayerBySocketId(socketId);
-
-    if (seat) {
-      let addedToPot = amount - seat.bet;
-
-      seat.raise(amount);
-      this.pot += addedToPot;
-
-      this.callAmount = amount;
-
-      return {
-        seatId: seat.id,
-        message: `${seat.player.name} raises to $${amount.toFixed(2)}`,
       };
     } else {
       return null;

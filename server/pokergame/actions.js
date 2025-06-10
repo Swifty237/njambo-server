@@ -21,3 +21,4 @@ exports.SITTING_IN = 'SITTING_IN';
 exports.DISCONNECT = 'DISCONNECT';
 exports.PLAY_ONE_CARD = 'PLAY_ONE_CARD';
 exports.PLAYED_CARD = 'PLAYED_CARD';
+exports.SET_TURN = 'SET_TURN';

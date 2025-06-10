@@ -12,10 +12,9 @@ const {
   TABLES_UPDATED,
   LEAVE_TABLE,
   TABLE_LEFT,
-  FOLD,
-  CHECK,
-  CALL,
-  RAISE,
+  // FOLD,
+  // CHECK,
+  // CALL,
   TABLE_MESSAGE,
   SIT_DOWN,
   REBUY,
@@ -26,7 +25,8 @@ const {
   TABLE_UPDATED,
   WINNER,
   PLAY_ONE_CARD,
-  PLAYED_CARD
+  PLAYED_CARD,
+  SET_TURN
 } = require('../pokergame/actions');
 const config = require('../config');
 
@@ -178,36 +178,58 @@ const init = (socket, io) => {
     console.log("on socket PLAY_ONE_CARD");
 
     let table = tables[tableId];
-    let seat = table.seats[seatId]
-    seat.playOneCard(playedCard)
-    changeTurnAndBroadcast(table, seatId);
-    socket.emit(PLAYED_CARD, { tables: getCurrentTables(), tableId, seatId });
-  })
+    let seat = table.seats[seatId];
 
-  socket.on(FOLD, (tableId) => {
-    let table = tables[tableId];
-    let res = table.handleFold(socket.id);
-    res && broadcastToTable(table, res.message);
-    res && changeTurnAndBroadcast(table, res.seatId);
+    console.log("seat from index : ", seat);
+    console.log("seat turn from index : ", seat.turn);
+
+    if (seat && seat.turn) {
+
+      // Vérifier si la carte peut être jouée selon les règles
+      if (table.canPlayCard(seatId, playedCard)) {
+        // Nettoyer le timer puisque le joueur a joué à temps
+        table.clearTurnTimer();
+
+        // Si c'est la première carte du tour, définir la couleur demandée
+        if (table.currentRoundCards.length === 0) {
+          table.demandedSuit = playedCard.suit;
+          console.log(`New demanded suit: ${playedCard.suit}`);
+        }
+
+        // Jouer la carte
+        seat.playOneCard(playedCard);
+
+        // Ajouter la carte à l'historique du tour
+        table.currentRoundCards.push({
+          seatId: seatId,
+          card: playedCard
+        });
+
+        // Informer le joueur que sa carte a été jouée
+        socket.emit(PLAYED_CARD, {
+          tables: getCurrentTables(),
+          tableId,
+          seatId
+        });
+
+        // Passer au joueur suivant et démarrer son timer
+        changeTurnAndBroadcast(table, seatId);
+      } else {
+        console.log(`Invalid card played: ${playedCard.suit} ${playedCard.rank}. Must follow suit: ${table.demandedSuit}`);
+        // Informer le joueur que la carte n'est pas valide
+        socket.emit(TABLE_MESSAGE, {
+          message: `Vous devez jouer une carte de ${table.demandedSuit} si possible`,
+          from: 'System'
+        });
+      }
+    } else {
+      console.log("wait for your turn");
+    }
   });
 
-  socket.on(CHECK, (tableId) => {
-    let table = tables[tableId];
-    let res = table.handleCheck(socket.id);
-    res && broadcastToTable(table, res.message);
-    res && changeTurnAndBroadcast(table, res.seatId);
-  });
-
-  // socket.on(CALL, (tableId) => {
+  // socket.on(CHECK, (tableId) => {
   //   let table = tables[tableId];
-  //   let res = table.handleCall(socket.id);
-  //   res && broadcastToTable(table, res.message);
-  //   res && changeTurnAndBroadcast(table, res.seatId);
-  // });
-
-  // socket.on(RAISE, ({ tableId, amount }) => {
-  //   let table = tables[tableId];
-  //   let res = table.handleRaise(socket.id, amount);
+  //   let res = table.handleCheck(socket.id);
   //   res && broadcastToTable(table, res.message);
   //   res && changeTurnAndBroadcast(table, res.seatId);
   // });
@@ -231,12 +253,6 @@ const init = (socket, io) => {
       if (table.activePlayers().length === 2) {
         initNewHand(table);
       }
-
-      // socket.emit(RECEIVE_LOBBY_INFO, {
-      //   tables: getCurrentTables(),
-      //   players: getCurrentPlayers(),
-      //   socketId: socket.id,
-      // });
     }
   });
 
@@ -343,14 +359,38 @@ const init = (socket, io) => {
   }
 
   function changeTurnAndBroadcast(table, seatId) {
-    setTimeout(() => {
-      table.changeTurn(seatId);
-      broadcastToTable(table);
+    // Changer de tour immédiatement
+    table.changeTurn(seatId);
+    io.to(table.seats[seatId].player.socketId).emit(SET_TURN, {
+      tables: getCurrentTables(),
+      tableId: table.id,
+      seatId: seatId
+    });
+    broadcastToTable(table);
 
-      if (table.handOver) {
-        initNewHand(table);
-      }
-    }, 100); // Réduire le délai de 1000ms à 200ms pour une meilleure réactivité
+    // Si la main n'est pas terminée, démarrer le timer pour le prochain joueur
+    if (!table.handOver && table.turn) {
+      table.startTurnTimer(
+        table.turn,
+        (nextSeatId) => {
+          // Quand le timer expire, jouer une carte automatiquement
+          const result = table.playRandomCard(nextSeatId);
+          if (result) {
+            // Émettre l'événement PLAYED_CARD pour informer les clients
+            io.to(table.seats[nextSeatId].player.socketId).emit(PLAYED_CARD, {
+              tables: getCurrentTables(),
+              tableId: table.id,
+              seatId: nextSeatId
+            });
+            // Passer au joueur suivant
+            changeTurnAndBroadcast(table, nextSeatId);
+          }
+        });
+
+    } else if (table.handOver) {
+      // Démarrer une nouvelle main
+      initNewHand(table);
+    }
   }
 
   function initNewHand(table) {
@@ -360,23 +400,48 @@ const init = (socket, io) => {
     setTimeout(() => {
       table.clearWinMessages();
       table.startHand();
-      broadcastToTable(table, '--- New hand started ---');
+
+      // Démarrer le timer pour le premier joueur
+      if (table.turn && !table.handOver) {
+
+        broadcastToTable(table, '--- New hand started ---');
+        table.startTurnTimer(
+          table.turn,
+          (seatId) => {
+            // Callback appelé quand le timer expire pour le premier joueur
+            const result = table.playRandomCard(seatId);
+            if (result) {
+              // Émettre l'événement PLAYED_CARD pour informer les clients
+              io.to(table.seats[seatId].player.socketId).emit(PLAYED_CARD, {
+                tables: getCurrentTables(),
+                tableId: table.id,
+                seatId: seatId
+              });
+            }
+            // Changer de tour et diffuser les mises à jour
+            changeTurnAndBroadcast(table, seatId);
+          });
+      }
+
     }, 5000);
   }
 
   function clearForOnePlayer(table) {
     table.clearWinMessages();
-    setTimeout(() => {
-      table.clearSeatHands();
-      table.resetPot();
-      broadcastToTable(table, 'Waiting for more players');
-    }, 5000);
+    table.clearSeatHands();
+    table.clearSeatPlayedHands();
+    table.resetPot();
+    broadcastToTable(table, 'Waiting for more players');
   }
 
   function hideOpponentCards(table, socketId) {
-    let tableCopy = JSON.parse(JSON.stringify(table));
+    // Créer une copie de la table en excluant les propriétés qui causent des références circulaires
+    let tableCopy = {
+      ...table,
+      turnTimer: null, // Exclure le timer pour éviter les références circulaires
+    };
+    tableCopy = JSON.parse(JSON.stringify(tableCopy));
     let hiddenCard = { suit: 'hidden', rank: 'hidden' };
-    let hiddenHand = Array(5).fill(hiddenCard); // Créer un tableau de 5 cartes cachées
 
     for (let i = 1; i <= tableCopy.maxPlayers; i++) {
       let seat = tableCopy.seats[i];
@@ -387,7 +452,8 @@ const init = (socket, io) => {
         seat.player.socketId !== socketId &&
         !(seat.lastAction === WINNER && tableCopy.wentToShowdown)
       ) {
-        seat.hand = hiddenHand;
+        // Créer un tableau de cartes cachées de la même taille que la main du joueur
+        seat.hand = Array(seat.hand.length).fill(hiddenCard);
       }
     }
     return tableCopy;
