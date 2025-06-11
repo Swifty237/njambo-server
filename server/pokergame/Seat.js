@@ -17,10 +17,6 @@ class Seat {
   }
 
   playOneCard(card) {
-    console.log("playOneCard called with card:", card);
-    console.log("Current hand before:", this.hand);
-    console.log("Current playedHand before:", this.playedHand);
-
     // Vérifier si la carte existe dans la main
     const cardIndex = this.hand.findIndex(c => c.suit === card.suit && c.rank === card.rank);
 
@@ -35,12 +31,7 @@ class Seat {
       if (!cardExists) {
         this.playedHand = [...this.playedHand, card];
       }
-    } else {
-      console.log("Card not found in hand:", card);
     }
-
-    console.log("Current hand after:", this.hand);
-    console.log("Current playedHand after:", this.playedHand);
 
     this.lastAction = PLAY_ONE_CARD;
   }
@@ -83,7 +74,7 @@ class Seat {
   }
 
   winHand(amount) {
-    this.bet = 0;
+    this.bet = amount;
     this.stack += amount;
     this.turn = false;
     this.lastAction = WINNER;

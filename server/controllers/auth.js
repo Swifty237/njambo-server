@@ -22,9 +22,6 @@ exports.getCurrentUser = async (req, res) => {
 // @desc    Authenticate user & get token
 // @access  Public
 exports.login = async (req, res) => {
-
-  console.log('Received body:', req.body);
-
   const errors = validationResult(req);
 
   if (!errors.isEmpty()) {
@@ -32,8 +29,6 @@ exports.login = async (req, res) => {
   }
 
   const { email, password } = req.body;
-
-  console.log("email : ", email);
 
   try {
 

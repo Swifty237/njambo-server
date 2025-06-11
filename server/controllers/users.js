@@ -43,7 +43,7 @@ exports.register = async (req, res) => {
     try {
       await sendEmail(user.email, WelcomeMail(user.name));
     } catch (error) {
-      console.log(error);
+      // Email sending failed silently
     }
 
     const payload = {
