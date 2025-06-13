@@ -14,6 +14,9 @@ class Seat {
     this.folded = false;
     this.lastAction = null;
     this.sittingOut = false;
+    this.wantsSitout = false;  // Pour indiquer que le joueur veut passer en sitout à la fin de la main
+    this.wantsSitin = false;   // Pour indiquer que le joueur veut revenir au jeu à la prochaine main
+    this.showingCards = false; // Pour indiquer si le joueur montre ses cartes
   }
 
   playOneCard(card) {

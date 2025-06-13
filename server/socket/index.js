@@ -23,6 +23,7 @@ const {
   WINNER,
   PLAY_ONE_CARD,
   PLAYED_CARD,
+  SHOW_DOWN,
 } = require('../pokergame/actions');
 const config = require('../config');
 
@@ -124,6 +125,18 @@ const init = (socket, io) => {
   socket.on(LEAVE_TABLE, (tableId) => {
     const table = tables[tableId];
     const player = players[socket.id];
+
+    // Vérifier si la table existe
+    if (!table) {
+      socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
+      socket.emit(RECEIVE_LOBBY_INFO, {
+        tables: getCurrentTables(),
+        players: getCurrentPlayers(),
+        socketId: socket.id,
+      });
+      return;
+    }
+
     const seat = Object.values(table.seats).find(
       (seat) => seat && seat.player.socketId === socket.id,
     );
@@ -212,7 +225,8 @@ const init = (socket, io) => {
       updatePlayerBankroll(player, -amount);
       broadcastToTable(table, message, 'Le katika');
 
-      if (table.activePlayers().length === 2) {
+      // Ne pas démarrer de nouvelle main si une main est en cours
+      if (table.handOver && table.currentHandPlayers().length > 1) {
         initNewHand(table);
       }
     }
@@ -248,7 +262,8 @@ const init = (socket, io) => {
       clearForOnePlayer(table);
     }
 
-    if (table.activePlayers().length > 1) {
+    // Ne pas démarrer de nouvelle main si une main est en cours
+    if (table.handOver && table.currentHandPlayers().length > 1) {
       initNewHand(table);
     }
   });
@@ -256,11 +271,19 @@ const init = (socket, io) => {
   socket.on(SITTING_OUT, ({ tableId, seatId }) => {
     const table = tables[tableId];
     const seat = table.seats[seatId];
-    seat.sittingOut = true;
 
-    broadcastToTable(table, null, 'Le katika');
+    // Si une main est en cours et que ce joueur y participe, 
+    // on attend la fin de la main avant de le mettre en sitout
+    if (!table.handOver && seat.hand && seat.hand.length > 0) {
+      seat.wantsSitout = true;  // Marquer qu'il veut passer en sitout
+      broadcastToTable(table, `${seat.player.name} passera en pause à la fin de la main`, 'Le katika');
+    } else {
+      seat.sittingOut = true;
+      broadcastToTable(table, `${seat.player.name} est en pause`, 'Le katika');
+    }
 
-    if (table.activePlayers().length > 1) {
+    // Ne démarrer une nouvelle main que si la main en cours est terminée
+    if (table.handOver && table.currentHandPlayers().length > 1) {
       initNewHand(table);
     }
   });
@@ -268,11 +291,35 @@ const init = (socket, io) => {
   socket.on(SITTING_IN, ({ tableId, seatId }) => {
     const table = tables[tableId];
     const seat = table.seats[seatId];
-    seat.sittingOut = false;
 
-    broadcastToTable(table, null, 'Le katika');
-    if (table.handOver && table.activePlayers().length > 1) {
+    // Si une main est en cours, le joueur ne sera actif qu'à la prochaine main
+    if (!table.handOver) {
+      seat.wantsSitin = true;  // Marquer qu'il veut revenir au jeu
+      broadcastToTable(table, `${seat.player.name} rejoindra la prochaine main`, 'Le katika');
+    } else {
+      seat.sittingOut = false;
+      broadcastToTable(table, `${seat.player.name} est de retour`, 'Le katika');
+    }
+
+    // Ne démarrer une nouvelle main que si la main en cours est terminée
+    if (table.handOver && table.currentHandPlayers().length > 1) {
       initNewHand(table);
+    }
+  });
+
+  socket.on(SHOW_DOWN, ({ tableId, seatId }) => {
+    const table = tables[tableId];
+    const seat = table.seats[seatId];
+
+    if (seat && seat.player.socketId === socket.id) {
+      // Basculer l'état showingCards
+      seat.showingCards = !seat.showingCards;
+
+      const message = seat.showingCards
+        ? `${seat.player.name} montre ses cartes`
+        : `${seat.player.name} cache ses cartes`;
+
+      broadcastToTable(table, message, 'Le katika');
     }
   });
 
@@ -357,16 +404,18 @@ const init = (socket, io) => {
       // Diffuser l'état de la table après la victoire
       broadcastToTable(table, null, 'Le katika');
 
-      // Démarrer une nouvelle main immédiatement
-      // (initNewHand gère son propre délai de 5 secondes)
-      if (table && table.activePlayers().length > 1) {
-        initNewHand(table);
-      }
+      // Attendre un peu avant de démarrer une nouvelle main pour laisser le temps
+      // à determinePotWinner de terminer complètement (attribution du pot + endHand)
+      setTimeout(() => {
+        if (table && table.handOver && table.currentHandPlayers().length > 1) {
+          initNewHand(table);
+        }
+      }, 3000);
     }
   }
 
   function initNewHand(table) {
-    if (table.activePlayers().length > 1) {
+    if (table.currentHandPlayers().length > 1) {
       broadcastToTable(table, '---New hand starting in 5 seconds---', 'Le katika');
     }
     setTimeout(() => {
@@ -415,7 +464,8 @@ const init = (socket, io) => {
         seat.hand.length > 0
         &&
         seat.player.socketId !== socketId &&
-        !(seat.lastAction === WINNER && tableCopy.wentToShowdown)
+        !(seat.lastAction === WINNER && tableCopy.wentToShowdown) &&
+        !seat.showingCards  // Ne pas cacher si le joueur montre ses cartes
       ) {
         seat.hand = Array(seat.hand.length).fill(hiddenCard);
       }

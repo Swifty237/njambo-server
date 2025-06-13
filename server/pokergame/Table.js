@@ -5,6 +5,7 @@ const Seat = require('./Seat');
 const Deck = require('./Deck');
 const SidePot = require('./SidePot');
 const Player = require('./Player');
+const { findBestCombination, compareCombinations } = require('./Combinations');
 
 class Table {
   constructor(id, name, bet, isPrivate, createdAt) {
@@ -23,7 +24,6 @@ class Table {
     this.callAmount = null;
     this.handOver = true;
     this.winMessages = [];
-    this.wentToShowdown = false;
     this.history = [];
     this.deck = null;
     this.turnTimer = null;        // Timer pour le tour actuel
@@ -32,6 +32,7 @@ class Table {
     this.currentRoundCards = [];   // Cartes jouées dans le tour actuel
     this.roundNumber = 1;
     this.countHand = 0;         // Numéro du tour actuel (1-5)
+    this.handParticipants = [];   // Mémoire tampon des joueurs qui participent à la main en cours
   }
 
   initSeats(maxPlayers) {
@@ -101,16 +102,25 @@ class Table {
     }
     // throw new Error('seat not found!');
   }
-  unfoldedPlayers() {
-    return Object.values(this.seats).filter(
-      (seat) => seat != null && !seat.folded,
-    );
-  }
 
   activePlayers() {
     return Object.values(this.seats).filter(
       (seat) => seat != null && !seat.sittingOut,
     );
+  }
+
+  // Retourne les joueurs qui participent à la main en cours
+  // Si une main est en cours, utilise handParticipants, sinon utilise activePlayers
+  currentHandPlayers() {
+    if (!this.handOver && this.handParticipants.length > 1) {
+      // Pendant une main, utiliser seulement les participants enregistrés
+      return this.handParticipants.filter(seatId =>
+        this.seats[seatId] && !this.seats[seatId].sittingOut
+      ).map(seatId => this.seats[seatId]);
+    } else {
+      // Hors main, utiliser tous les joueurs actifs
+      return this.activePlayers();
+    }
   }
 
   nextActivePlayer(player, places) {
@@ -125,14 +135,14 @@ class Table {
       return 1;
     }
 
-    // Vérifier s'il y a plus d'un joueur actif
-    const activePlayers = this.activePlayers();
-    if (activePlayers.length <= 1) {
+    // Vérifier s'il y a plus d'un joueur participant
+    const currentPlayers = this.currentHandPlayers();
+    if (currentPlayers.length <= 1) {
       return parseInt(playerNum);
     }
 
-    // Construire un tableau des seatId des joueurs actifs (en tant que nombres)
-    const activePlayerIds = activePlayers.map(seat => parseInt(seat.id));
+    // Construire un tableau des seatId des joueurs participants (en tant que nombres)
+    const activePlayerIds = currentPlayers.map(seat => parseInt(seat.id));
 
     // Garder la position de départ
     const startingSeat = parseInt(playerNum);
@@ -158,23 +168,25 @@ class Table {
     try {
       this.deck = new Deck();
 
-      this.wentToShowdown = false;
       this.resetPot();
       this.clearSeatHands();
       this.clearSeatPlayedHands();
       this.resetBetsAndActions();
       this.unfoldPlayers();
       this.history = [];
-      this.turn = null;
 
       // Initialiser les variables pour le nouveau système de jeu
       this.demandedSuit = null;
       this.currentRoundCards = [];
       this.roundNumber = 1;
+      this.turn = null;  // Définir turn à null juste avant setTurn()
 
-      const activePlayers = this.activePlayers();
+      // Au début d'une nouvelle main, on utilise activePlayers() pour obtenir tous les joueurs disponibles
+      const availablePlayers = this.activePlayers();
 
-      if (activePlayers.length > 1) {
+      if (availablePlayers.length > 1) {
+        // Enregistrer les participants à cette main
+        this.handParticipants = availablePlayers.map(seat => seat.id);
 
         if (this.countHand !== 0) {
           // Si on a un gagnant de la main précédente, il devient le nouveau dealer
@@ -213,7 +225,7 @@ class Table {
       for (let i = 0; i < 5; i++) {
         for (let j = 0; j < order.length; j++) {
           const seat = this.seats[order[j]];
-          if (seat && !seat.sittingOut) {
+          if (seat && !seat.sittingOut && seat.bet !== 0) {
             const card = this.deck.draw();
             if (!card) {
               throw new Error("No card drawn from deck!");
@@ -239,14 +251,13 @@ class Table {
   }
 
   setTurn() {
-    if (this.activePlayers().length > 1) {
-      if (this.countHand === 0) {
-        this.turn = parseInt(this.button);
-      } else {
-        this.turn = this.nextActivePlayer(this.turn, 1);
-      }
+    const currentPlayers = this.currentHandPlayers();
+    if (currentPlayers.length > 1) {
+      this.turn = parseInt(this.button);
+    } else if (currentPlayers.length === 1) {
+      this.turn = parseInt(currentPlayers[0].id);
     } else {
-      this.turn = parseInt(this.activePlayers()[0].id);
+      this.turn = null;
     }
 
     // Mettre à jour le tour pour tous les sièges
@@ -255,15 +266,15 @@ class Table {
 
   setBlinds() {
     try {
-      // Placer les blinds - tous les joueurs actifs placent la même mise
+      // Placer les blinds - seuls les joueurs participants à cette main placent une mise
       const betAmount = Number(this.bet);
-      const activePlayers = this.activePlayers();
+      const currentPlayers = this.currentHandPlayers();
       let totalBets = 0;
 
-      // Tous les joueurs actifs placent une blind égale à la mise de départ
+      // Seuls les joueurs participants placent une blind égale à la mise de départ
       for (let i = 1; i <= this.maxPlayers; i++) {
         const seat = this.seats[i];
-        if (seat && !seat.sittingOut) {
+        if (seat && this.handParticipants.includes(seat.id) && !seat.sittingOut) {
           seat.placeBet(betAmount);
           totalBets += betAmount;
         }
@@ -288,6 +299,7 @@ class Table {
     for (let i of Object.keys(this.seats)) {
       if (this.seats[i]) {
         this.seats[i].hand = [];
+        this.seats[i].showingCards = false; // Réinitialiser l'état des cartes montrées
       }
     }
   }
@@ -317,6 +329,8 @@ class Table {
     this.clearSeatTurns();
     this.handOver = true;
     this.sitOutFeltedPlayers();
+    this.handlePendingSitoutSitin();
+    this.handParticipants = [];  // Réinitialiser la liste des participants
   }
 
   sitOutFeltedPlayers() {
@@ -328,12 +342,28 @@ class Table {
     }
   }
 
+  handlePendingSitoutSitin() {
+    // Gérer les joueurs qui ont demandé à passer en sitout pendant la main
+    for (let i of Object.keys(this.seats)) {
+      const seat = this.seats[i];
+      if (seat) {
+        if (seat.wantsSitout) {
+          seat.sittingOut = true;
+          seat.wantsSitout = false;
+        }
+        if (seat.wantsSitin) {
+          seat.sittingOut = false;
+          seat.wantsSitin = false;
+        }
+      }
+    }
+  }
+
   resetEmptyTable() {
     this.button = null;
     this.turn = null;
     this.handOver = true;
     this.deck = null;
-    this.wentToShowdown = false;
     this.resetPot();
     this.clearWinMessages();
     this.clearSeats();
@@ -378,9 +408,9 @@ class Table {
     this.currentRoundCards = [];
     this.demandedSuit = null;
 
-    // Vérifier s'il reste des joueurs actifs avec des cartes
-    const activePlayers = this.activePlayers().filter(seat => seat.hand.length > 0);
-    if (activePlayers.length < 2) {
+    // Vérifier s'il reste des joueurs participants avec des cartes
+    const currentPlayers = this.currentHandPlayers().filter(seat => seat.hand.length > 0);
+    if (currentPlayers.length < 2) {
       this.handOver = true;
       return;
     }
@@ -415,11 +445,11 @@ class Table {
     // Le premier joueur du tour
     const firstPlayer = this.currentRoundCards[0].seatId;
 
-    // Vérifier si tous les joueurs actifs ont joué
-    const activePlayers = this.activePlayers().filter(seat => seat.hand.length > 0 || this.currentRoundCards.some(card => card.seatId === seat.id));
+    // Vérifier si tous les joueurs participants ont joué
+    const currentPlayers = this.currentHandPlayers().filter(seat => seat.hand.length > 0 || this.currentRoundCards.some(card => card.seatId === seat.id));
     const playersWhoPlayed = this.currentRoundCards.map(card => card.seatId);
 
-    if (!activePlayers.every(seat => playersWhoPlayed.includes(seat.id))) {
+    if (!currentPlayers.every(seat => playersWhoPlayed.includes(seat.id))) {
       return null;
     }
 
@@ -454,14 +484,14 @@ class Table {
 
   // Vérifier si un tour est terminé
   isRoundComplete() {
-    // Obtenir tous les joueurs actifs au début du tour
-    const activePlayers = this.activePlayers();
-    const playersWithCards = activePlayers.filter(seat => seat.hand.length > 0);
+    // Obtenir tous les joueurs participants au début du tour
+    const currentPlayers = this.currentHandPlayers();
+    const playersWithCards = currentPlayers.filter(seat => seat.hand.length > 0);
 
     // Obtenir les joueurs qui ont joué ce tour
     const playersWhoPlayed = this.currentRoundCards.map(card => card.seatId);
 
-    // Un tour est complet quand tous les joueurs actifs au début du tour ont joué
+    // Un tour est complet quand tous les joueurs participants au début du tour ont joué
     const allPlayersPlayed = playersWithCards.every(seat =>
       playersWhoPlayed.includes(seat.id)
     );
@@ -635,10 +665,6 @@ class Table {
       if (this.isRoundComplete()) {
         const roundWinner = this.findRoundWinner();
 
-        // Vérifier si tous les joueurs ont joué toutes leurs cartes
-        const activePlayers = this.activePlayers();
-        // const playersWithCards = activePlayers.filter(seat => seat.hand.length > 0);
-
         if (this.roundNumber > 5) {
           this.handOver = true;
           this.turn = null;
@@ -715,29 +741,72 @@ class Table {
   }
 
   determinePotWinner() {
+    // Vérifier d'abord les combinaisons gagnantes des joueurs qui montrent leurs cartes
+    let bestCombo = null;
+    let winnerByCombination = null;
+
+    for (let i = 1; i <= this.maxPlayers; i++) {
+      const seat = this.seats[i];
+      if (seat && seat.showingCards && seat.hand.length > 0) {
+        const combo = findBestCombination(seat.hand);
+        if (combo) {
+          if (!bestCombo || compareCombinations(combo, bestCombo) > 0) {
+            bestCombo = combo;
+            winnerByCombination = seat;
+          }
+        }
+      }
+    }
+
+    // Si un joueur a une combinaison gagnante, il gagne immédiatement
+    if (winnerByCombination) {
+      const comboNames = {
+        'FOUR_OF_A_KIND': 'carré',
+        'THREE_SEVENS': 'trois sept',
+        'TIA': 'tia'
+      };
+
+      const winMessage = `${winnerByCombination.player.name} gagne avec un ${comboNames[bestCombo.type]}!`;
+      this.winMessages.push(winMessage);
+
+      // Mettre le bet de tous les joueurs à zéro
+      for (let i = 1; i <= this.maxPlayers; i++) {
+        if (this.seats[i]) {
+          this.seats[i].bet = 0;
+        }
+      }
+
+      // Attribuer le pot au gagnant
+      setTimeout(() => {
+        winnerByCombination.winHand(this.pot);
+        this.endHand();
+      }, 2000);
+      return;
+    }
+
+    // Si personne n'a de combinaison gagnante, utiliser la logique normale du dernier gagnant
     if (this.lastWinningSeat) {
       const winner = this.seats[this.lastWinningSeat];
 
       if (winner) {
-        const winMessage = `${winner.player.name} wins $${this.pot.toFixed(2)}`;
+        const winMessage = `${winner.player.name} gagne la main!`;
         this.winMessages.push(winMessage);
 
-        // Mettre le bet de tous les joueurs à zéro d'abord (même pour le gagnant)
+        // Mettre le bet de tous les joueurs à zéro
         for (let i = 1; i <= this.maxPlayers; i++) {
           if (this.seats[i]) {
             this.seats[i].bet = 0;
           }
         }
 
-        // Ensuite exécuter le setTimeout qui ajoute le montant du pot au stack du gagnant
         setTimeout(() => {
           winner.winHand(this.pot);
+          this.endHand();
         }, 2000);
       }
+    } else {
+      this.endHand();
     }
-
-    this.wentToShowdown = true;
-    this.endHand();
   }
 
   resetBetsAndActions() {
