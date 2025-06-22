@@ -103,6 +103,8 @@ const init = (socket, io) => {
 
     if (!tableExists) {
       tables[id] = new Table(id, name, bet, isPrivate, createdAt);
+      // Configurer les callbacks dès la création de la table
+      setupTableCallbacks(tables[id]);
     }
 
     const player = players[socket.id];
@@ -180,10 +182,13 @@ const init = (socket, io) => {
     let seat = table.seats[seatId];
 
     if (seat && seat.turn) {
-      if (table.canPlayCard(seatId, playedCard)) {
+      // Vérifier si c'est le premier joueur du tour
+      const isFirstPlayer = table.currentRoundCards.length === 0;
+
+      if (isFirstPlayer || table.canPlayCard(seatId, playedCard)) {
         table.clearTurnTimer();
 
-        if (table.currentRoundCards.length === 0) {
+        if (isFirstPlayer) {
           table.demandedSuit = playedCard.suit;
         }
 
@@ -203,7 +208,7 @@ const init = (socket, io) => {
         changeTurnAndBroadcast(table, seatId);
       } else {
         socket.emit(TABLE_MESSAGE, {
-          message: `Vous devez jouer une carte de ${table.demandedSuit} si possible`,
+          message: `Vous devez jouer une carte de ${table.demandedSuit}`,
           from: 'Katika'
         });
       }
@@ -245,6 +250,12 @@ const init = (socket, io) => {
   socket.on(STAND_UP, (tableId) => {
     const table = tables[tableId];
     const player = players[socket.id];
+
+    if (!table) {
+      console.error(`Table ${tableId} not found for STAND_UP`);
+      return;
+    }
+
     const seat = Object.values(table.seats).find(
       (seat) => seat && seat.player.socketId === socket.id,
     );
@@ -313,13 +324,27 @@ const init = (socket, io) => {
 
     if (seat && seat.player.socketId === socket.id) {
       // Basculer l'état showingCards
-      seat.showingCards = !seat.showingCards;
+      const isShowingCards = !seat.showingCards;
+      seat.showingCards = isShowingCards;
 
-      const message = seat.showingCards
+      let message = isShowingCards
         ? `${seat.player.name} montre ses cartes`
         : `${seat.player.name} cache ses cartes`;
-
       broadcastToTable(table, message, 'Le katika');
+
+      // Ne vérifier les combinaisons que si le joueur montre ses cartes
+      if (isShowingCards) {
+        const winnerByCombination = table.determinePotWinner();
+
+        // Si une combinaison gagnante est trouvée
+        if (winnerByCombination && table.lastWinningSeat === winnerByCombination) {
+          message = `${seat.player.name} a une combinaison gagnante`;
+          broadcastToTable(table, message, 'Le katika');
+
+          // Terminer la main actuelle et en démarrer une nouvelle
+          table.endHand();
+        }
+      }
     }
   });
 
@@ -375,40 +400,105 @@ const init = (socket, io) => {
     }
   }
 
-  function changeTurnAndBroadcast(table, seatId) {
-    table.changeTurn(seatId);
+  // Fonction pour configurer les callbacks de la table
+  function setupTableCallbacks(table) {
+    // Callback pour le jeu automatique
+    table.onAutoPlayCard = (seatId, playedCard) => {
+      // Notifier tous les joueurs qu'une carte a été jouée automatiquement
+      if (table.seats[seatId]) {
+        let seat = table.seats[seatId];
 
-    if (!table.handOver && table.turn) {
-      broadcastToTable(table, `---Le tour passe---`, 'Le katika');
-      table.startTurnTimer(
-        table.turn,
-        (nextSeatId) => {
-          const result = table.playRandomCard(nextSeatId);
-          if (result) {
-            io.to(table.seats[nextSeatId].player.socketId).emit(PLAYED_CARD, {
-              tables: getCurrentTables(),
-              tableId: table.id,
-              seatId: nextSeatId
-            });
-            changeTurnAndBroadcast(table, nextSeatId);
-          }
+        seat.playOneCard(playedCard);
+
+        table.currentRoundCards.push({
+          seatId: seatId,
+          card: playedCard
         });
-    } else if (table.handOver) {
-      // Diffuser les messages de victoire s'il y en a
+        console.log(`[chooseRandomCard] Added card to current round cards. Total cards: ${table.currentRoundCards.length}`);
+
+        socket.emit(PLAYED_CARD, {
+          tables: getCurrentTables(),
+          tableId: table.id,
+          seatId
+        });
+
+        changeTurnAndBroadcast(table, seatId);
+      }
+    };
+
+    // Callback pour la fin de la main
+    table.onHandComplete = () => {
+      console.log(`[onHandComplete] Hand completed for table ${table.id}`);
+
+      // Diffuser les messages de victoire
       if (table.winMessages && table.winMessages.length > 0) {
-        table.winMessages.forEach(winMessage => {
-          broadcastToTable(table, winMessage, 'Le katika');
+        table.winMessages.forEach(message => {
+          broadcastToTable(table, message, 'Le katika');
         });
       }
 
-      // Diffuser l'état de la table après la victoire
+      // Diffuser l'état final de la table
       broadcastToTable(table, null, 'Le katika');
 
-      // Attendre un peu avant de démarrer une nouvelle main pour laisser le temps
-      // à determinePotWinner de terminer complètement (attribution du pot + endHand)
+      // Marquer que la main est terminée pour éviter les doubles démarrages
+      table.handCompleted = true;
+
+      // Attendre un peu avant de démarrer une nouvelle main
       setTimeout(() => {
-        if (table && table.handOver && table.currentHandPlayers().length > 1) {
+        const activePlayers = table.currentHandPlayers();
+        if (activePlayers.length > 1) {
+          console.log(`[onHandComplete] Starting new hand with ${activePlayers.length} players`);
+          table.handCompleted = false; // Réinitialiser pour la prochaine main
           initNewHand(table);
+        } else {
+          console.log(`[onHandComplete] Not enough players (${activePlayers.length}) for new hand`);
+          broadcastToTable(table, 'En attente de plus de joueurs pour commencer une nouvelle main', 'Le katika');
+        }
+      }, 3000);
+    };
+  }
+
+  function changeTurnAndBroadcast(table, seatId) {
+    // Nettoyer l'ancien timer avant de changer de tour
+    table.clearTurnTimer();
+
+    // Éviter les changements de tour pendant que la main est terminée
+    if (table.handCompleted) {
+      return;
+    }
+
+    table.changeTurn(seatId);
+
+    // Configurer les callbacks de la table après le changement de tour
+    setupTableCallbacks(table);
+
+    if (!table.handOver && table.turn) {
+      broadcastToTable(table, `---Le tour passe---`, 'Le katika');
+
+      // Le timer est maintenant géré dans updateSeatsForNewTurn
+    } else if (table.handOver && !table.handCompleted) {
+      console.log(`[changeTurnAndBroadcast] Hand is over, processing end of hand`);
+
+      // Annoncer le gagnant du dernier tour
+      const lastRoundWinner = table.seats[table.lastWinningSeat];
+      if (lastRoundWinner) {
+        const roundWinMessage = `${lastRoundWinner.player.name} gagne le dernier tour!`;
+        broadcastToTable(table, roundWinMessage, 'Le katika');
+      }
+
+      // Attendre un peu avant de démarrer une nouvelle main
+      setTimeout(() => {
+        console.log(`[changeTurnAndBroadcast] Checking if new hand should start`);
+        const activePlayers = table.currentHandPlayers();
+        console.log(`[changeTurnAndBroadcast] Active players: ${activePlayers.length}`);
+
+        if (activePlayers.length > 1) {
+          console.log(`[changeTurnAndBroadcast] Starting new hand`);
+          table.handCompleted = false; // Réinitialiser pour la prochaine main
+          initNewHand(table);
+        } else {
+          console.log(`[changeTurnAndBroadcast] Not enough players (${activePlayers.length}) for new hand`);
+          broadcastToTable(table, 'En attente de plus de joueurs pour commencer une nouvelle main', 'Le katika');
         }
       }, 3000);
     }
@@ -420,23 +510,15 @@ const init = (socket, io) => {
     }
     setTimeout(() => {
       table.clearWinMessages();
+
+      // Configurer les callbacks de la table
+      setupTableCallbacks(table);
+
       table.startHand();
 
       if (table.turn && !table.handOver) {
         broadcastToTable(table, '--- New hand started ---', 'Le katika');
-        table.startTurnTimer(
-          table.turn,
-          (seatId) => {
-            const result = table.playRandomCard(seatId);
-            if (result) {
-              io.to(table.seats[seatId].player.socketId).emit(PLAYED_CARD, {
-                tables: getCurrentTables(),
-                tableId: table.id,
-                seatId: seatId
-              });
-            }
-            changeTurnAndBroadcast(table, seatId);
-          });
+        // Le timer est maintenant géré dans updateSeatsForNewTurn
       }
     }, 5000);
   }
