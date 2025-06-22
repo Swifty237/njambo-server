@@ -411,18 +411,18 @@ class Table {
     this.handParticipants = [];  // Réinitialiser la liste des participants
 
     // Si la main a été gagnée par une combinaison, démarrer une nouvelle main immédiatement
-    if (this.wonByCombination) {
-      console.log(`[endHand] Won by combination, starting new hand immediately`);
-      this.handOver = false;
-      this.wonByCombination = false;  // Réinitialiser le flag
-      this.startHand();
-    } else {
-      // Sinon, réinitialiser handOver après un délai pour permettre une nouvelle main
-      setTimeout(() => {
-        console.log(`[endHand] Resetting handOver to allow new hand`);
-        this.handOver = false;
-      }, 3000);
-    }
+    // if (this.wonByCombination) {
+    //   console.log(`[endHand] Won by combination, starting new hand immediately`);
+    //   this.handOver = false;
+    //   this.wonByCombination = false;  // Réinitialiser le flag
+    //   this.startHand();
+    // } else {
+    //   // Sinon, réinitialiser handOver après un délai pour permettre une nouvelle main
+    //   setTimeout(() => {
+    //     console.log(`[endHand] Resetting handOver to allow new hand`);
+    //     this.handOver = false;
+    //   }, 3000);
+    // }
   }
 
   sitOutFeltedPlayers() {
@@ -975,11 +975,11 @@ class Table {
       // Attribuer le pot au gagnant
       winnerByCombination.winHand(this.pot);
 
-      // Terminer la main actuelle
-      this.endHand();
-
       // Marquer qu'il y a eu une victoire par combinaison
       this.wonByCombination = true;
+
+      // Terminer la main actuelle
+      this.endHand();
 
       // Déclencher le callback pour notifier la fin de la main
       if (this.onHandComplete && !this.handCompleted) {

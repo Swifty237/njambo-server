@@ -343,6 +343,11 @@ const init = (socket, io) => {
 
           // Terminer la main actuelle et en démarrer une nouvelle
           table.endHand();
+
+          // Ne pas démarrer de nouvelle main si une main est en cours
+          if (table.handOver && table.currentHandPlayers().length > 1) {
+            initNewHand(table);
+          }
         }
       }
     }
@@ -518,7 +523,6 @@ const init = (socket, io) => {
 
       if (table.turn && !table.handOver) {
         broadcastToTable(table, '--- New hand started ---', 'Le katika');
-        // Le timer est maintenant géré dans updateSeatsForNewTurn
       }
     }, 5000);
   }
