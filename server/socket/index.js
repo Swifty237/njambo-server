@@ -145,9 +145,59 @@ const init = (socket, io) => {
 
     if (seat && player) {
       updatePlayerBankroll(player, seat.stack);
-    }
 
-    table.removePlayer(socket.id);
+      // Si c'était le tour de ce joueur et qu'une main est en cours
+      if (table.turn === seat.id && !table.handOver) {
+        console.log(`[LEAVE_TABLE] Player leaving during their turn, clearing timer and changing turn`);
+
+        // Nettoyer le timer
+        table.clearTurnTimer();
+
+        // Retirer le joueur de la liste des participants à la main
+        table.handParticipants = table.handParticipants.filter(id => id !== seat.id);
+
+        // Retirer le joueur de la table
+        table.removePlayer(socket.id);
+
+        // Trouver le prochain joueur actif
+        const remainingPlayers = table.activePlayers();
+        if (remainingPlayers.length >= 2) {
+          const nextPlayer = table.nextActivePlayer(seat.id, 1);
+          if (nextPlayer && table.seats[nextPlayer]) {
+            console.log(`[LEAVE_TABLE] Changing turn to next player: ${nextPlayer}`);
+            changeTurnAndBroadcast(table, nextPlayer);
+          }
+        } else {
+          console.log(`[LEAVE_TABLE] Not enough players left, ending hand`);
+          table.handOver = true;
+          if (remainingPlayers.length === 1) {
+            clearForOnePlayer(table);
+          }
+        }
+      } else {
+        // Si ce n'était pas son tour ou pas de main en cours
+        if (!table.handOver && table.handParticipants.includes(seat.id)) {
+          // Retirer de la liste des participants
+          table.handParticipants = table.handParticipants.filter(id => id !== seat.id);
+        }
+
+        // Retirer le joueur de la table
+        table.removePlayer(socket.id);
+
+        // Vérifier s'il reste assez de joueurs
+        const remainingPlayers = table.activePlayers();
+        if (remainingPlayers.length < 2 && !table.handOver) {
+          console.log(`[LEAVE_TABLE] Not enough players left, ending hand`);
+          table.handOver = true;
+          if (remainingPlayers.length === 1) {
+            clearForOnePlayer(table);
+          }
+        }
+      }
+    } else {
+      // Si pas de siège trouvé, juste retirer le joueur
+      table.removePlayer(socket.id);
+    }
 
     if (table.players.length == 0) {
       delete tables[tableId];
@@ -164,10 +214,6 @@ const init = (socket, io) => {
     ) {
       let message = `${player.name} left the table.`;
       broadcastToTable(table, message, 'Le katika');
-    }
-
-    if (table.activePlayers().length === 1) {
-      clearForOnePlayer(table);
     }
 
     socket.emit(RECEIVE_LOBBY_INFO, {
@@ -230,9 +276,17 @@ const init = (socket, io) => {
       updatePlayerBankroll(player, -amount);
       broadcastToTable(table, message, 'Le katika');
 
-      // Ne pas démarrer de nouvelle main si une main est en cours
-      if (table.handOver && table.currentHandPlayers().length > 1) {
-        initNewHand(table);
+      // Vérifier si on peut démarrer une nouvelle main
+      const activePlayers = table.currentHandPlayers();
+      console.log(`[SIT_DOWN] Active players after sit: ${activePlayers.length}`);
+
+      if (activePlayers.length >= 2) {
+        // Si la main est terminée ou si la table était en attente
+        if (table.handOver || !table.turn) {
+          console.log(`[SIT_DOWN] Starting new hand with ${activePlayers.length} players`);
+          table.handCompleted = false; // S'assurer qu'une nouvelle main peut démarrer
+          initNewHand(table);
+        }
       }
     }
   });
@@ -386,6 +440,26 @@ const init = (socket, io) => {
     });
     return foundSeat;
   }
+  async function updatePlayerBankroll(player, amount) {
+    const user = await User.findById(player.id);
+    user.chipsAmount += amount;
+    await user.save();
+
+    players[socket.id].bankroll += amount;
+    io.to(socket.id).emit(PLAYERS_UPDATED, getCurrentPlayers());
+  }
+
+  function findSeatBySocketId(socketId) {
+    let foundSeat = null;
+    Object.values(tables).forEach((table) => {
+      Object.values(table.seats).forEach((seat) => {
+        if (seat && seat.player.socketId === socketId) {
+          foundSeat = seat;
+        }
+      });
+    });
+    return foundSeat;
+  }
 
   function removeFromTables(socketId) {
     for (let i = 0; i < Object.keys(tables).length; i++) {
@@ -429,6 +503,11 @@ const init = (socket, io) => {
 
         changeTurnAndBroadcast(table, seatId);
       }
+    };
+
+    // Callback pour les changements de tour automatiques
+    table.onTurnChanged = (table, message) => {
+      broadcastToTable(table, message, 'Le katika');
     };
 
     // Callback pour la fin de la main
@@ -478,7 +557,13 @@ const init = (socket, io) => {
     setupTableCallbacks(table);
 
     if (!table.handOver && table.turn) {
-      broadcastToTable(table, `---Le tour passe---`, 'Le katika');
+
+      // Diffuser les notifications de jeu
+      if (table.gameNotifications && table.gameNotifications.length > 0) {
+        table.gameNotifications.forEach(message => {
+          broadcastToTable(table, message, 'Le katika');
+        });
+      }
 
       // Le timer est maintenant géré dans updateSeatsForNewTurn
     } else if (table.handOver && !table.handCompleted) {
@@ -515,6 +600,7 @@ const init = (socket, io) => {
     }
     setTimeout(() => {
       table.clearWinMessages();
+      table.clearGameNotifications();
 
       // Configurer les callbacks de la table
       setupTableCallbacks(table);
@@ -529,9 +615,17 @@ const init = (socket, io) => {
 
   function clearForOnePlayer(table) {
     table.clearWinMessages();
+    table.clearGameNotifications();
     table.clearSeatHands();
     table.clearSeatPlayedHands();
     table.resetPot();
+    table.handOver = true;
+    table.handCompleted = false;  // Important : permettre le démarrage d'une nouvelle main
+    table.roundNumber = 1;
+    table.currentRoundCards = [];
+    table.demandedSuit = null;
+    table.turn = null;
+    table.handParticipants = [];
     broadcastToTable(table, 'Waiting for more players', 'Le katika');
   }
 
