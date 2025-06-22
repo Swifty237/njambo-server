@@ -371,13 +371,13 @@ class Table {
         this.setPlayerTurn(this.button);
       }
     } else {
-      // Sinon, le bouton devient le prochain joueur actif
-      const nextButton = this.nextActivePlayer(this.button, 1);
+      // Sinon, le bouton devient le précédent vainqueur
+      const nextButton = this.lastWinningSeat;
       if (nextButton && this.seats[nextButton]) {
         this.button = nextButton;
         console.log(`[setButton] Button set to next active player: ${this.button}`);
       } else {
-        // Si pas de joueur suivant valide, prendre le premier joueur actif
+        // Si pas de vainqueur valide, prendre le premier joueur actif
         this.button = currentPlayers[0].id;
         console.log(`[setButton] No valid next player, setting button to first active player: ${this.button}`);
       }
