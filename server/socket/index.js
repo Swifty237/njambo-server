@@ -328,7 +328,7 @@ const init = (socket, io) => {
     }
 
     // Ne pas démarrer de nouvelle main si une main est en cours
-    if (table.handOver && table.currentHandPlayers().length > 1) {
+    if (table.handOver && table.currentHandPlayers().length >= 2) {
       initNewHand(table);
     }
   });
