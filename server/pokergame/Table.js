@@ -21,7 +21,7 @@ class Table {
     this.turn = null;
     this.lastWinningSeat = null;  // Pour garder une trace du dernier gagnant
     this.lastRoundWinner = null;
-    this.pot = null;
+    this.pot = 0;
     this.callAmount = null;
     this.handOver = true;
     this.handCompleted = false;   // Pour éviter les doubles démarrages de main
