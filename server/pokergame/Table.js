@@ -30,7 +30,7 @@ class Table {
     this.history = [];
     this.deck = null;
     this.turnTimer = null;        // Timer pour le tour actuel
-    this.turnTime = 15000;        // Temps en millisecondes pour jouer (15 secondes)
+    this.turnTime = 30000;        // Temps en millisecondes pour jouer (30 secondes)
     this.demandedSuit = null;     // Couleur demandée pour le tour actuel
     this.currentRoundCards = [];   // Cartes jouées dans le tour actuel
     this.roundNumber = 1;
