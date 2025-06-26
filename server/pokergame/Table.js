@@ -6,6 +6,7 @@ const Deck = require('./Deck');
 const SidePot = require('./SidePot');
 const Player = require('./Player');
 const { findBestCombination, compareCombinations } = require('./Combinations');
+const ChatRoom = require('./ChatRoom');
 
 class Table {
   constructor(id, name, bet, isPrivate, createdAt) {
@@ -38,6 +39,7 @@ class Table {
     this.handParticipants = [];   // Mémoire tampon des joueurs qui participent à la main en cours
     this.wonByCombination = false; // Flag pour indiquer une victoire par combinaison
     this.onTurnChanged = null;    // Callback pour notifier du changement de tour
+    this.chatRoom = new ChatRoom();
   }
 
   initSeats(maxPlayers) {
@@ -53,8 +55,10 @@ class Table {
   }
 
   removePlayer(socketId) {
+    if (!socketId) return;
+
     this.players = this.players.filter(
-      (player) => player && player.socketId !== socketId,
+      (player) => player && player.socketId && player.socketId !== socketId,
     );
     this.standPlayer(socketId);
   }
@@ -80,11 +84,11 @@ class Table {
   }
 
   standPlayer(socketId) {
+    if (!socketId) return;
+
     for (let i of Object.keys(this.seats)) {
-      if (this.seats[i]) {
-        if (this.seats[i] && this.seats[i].player.socketId === socketId) {
-          this.seats[i] = null;
-        }
+      if (this.seats[i] && this.seats[i].player && this.seats[i].player.socketId === socketId) {
+        this.seats[i] = null;
       }
     }
 
@@ -96,12 +100,14 @@ class Table {
   }
 
   findPlayerBySocketId(socketId) {
+    if (!socketId) return null;
+
     for (let i = 1; i <= this.maxPlayers; i++) {
-      if (this.seats[i] && this.seats[i].player.socketId === socketId) {
+      if (this.seats[i] && this.seats[i].player && this.seats[i].player.socketId === socketId) {
         return this.seats[i];
       }
     }
-    // throw new Error('seat not found!');
+    return null;
   }
 
   activePlayers() {

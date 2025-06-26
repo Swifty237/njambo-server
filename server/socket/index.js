@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Table = require('../pokergame/Table');
+const PersistentTable = require('../pokergame/PersistentTable');
 const Player = require('../pokergame/Player');
 const Seat = require('../pokergame/Seat');
 const {
@@ -24,35 +25,119 @@ const {
   PLAY_ONE_CARD,
   PLAYED_CARD,
   SHOW_DOWN,
+  SEND_CHAT_MESSAGE,
+  CHAT_MESSAGE_RECEIVED
 } = require('../pokergame/actions');
 const config = require('../config');
 
 const tables = {};
 const players = {};
 
-function getCurrentPlayers() {
-  return Object.values(players).map((player) => ({
-    socketId: player.socketId,
-    id: player.id,
-    name: player.name,
-  }));
+// Fonction pour restaurer les tables depuis MongoDB au démarrage
+async function restoreTablesFromDB() {
+  try {
+    console.log('Restoring tables from MongoDB...');
+    const TableModel = require('../models/Table');
+    const tableDocs = await TableModel.find({});
+
+    for (const tableDoc of tableDocs) {
+      const tableData = tableDoc.toObject();
+      const table = new PersistentTable(
+        tableData.id,
+        tableData.name,
+        tableData.bet,
+        tableData.isPrivate,
+        tableData.createdAt
+      );
+
+      // Restaurer les autres propriétés (sans les players pour l'instant)
+      Object.assign(table, {
+        maxPlayers: tableData.maxPlayers,
+        players: [], // Les joueurs seront ajoutés quand ils se reconnectent
+        seats: {},   // Les sièges seront restaurés mais sans les joueurs actifs
+        button: tableData.button,
+        turn: null,  // Pas de tour actif au redémarrage
+        lastWinningSeat: tableData.lastWinningSeat,
+        pot: tableData.pot || 0,
+        callAmount: tableData.callAmount,
+        handOver: true, // Marquer la main comme terminée au redémarrage
+        winMessages: [],
+        gameNotifications: [],
+        history: tableData.history || [],
+        chatRoom: tableData.chatRoom || { chatMessages: [] }
+      });
+
+      // Note: Les sièges et joueurs seront restaurés quand les joueurs se reconnectent
+      // Cela évite les erreurs avec les socketId invalides
+
+      tables[table.id] = table;
+      console.log(`Restored table ${table.id} from MongoDB`);
+    }
+
+    console.log(`Restored ${tableDocs.length} tables from MongoDB`);
+  } catch (error) {
+    console.error('Error restoring tables from MongoDB:', error);
+  }
 }
 
-function getCurrentTables() {
-  return Object.values(tables).map((table) => ({
-    id: table.id,
-    name: table.name,
-    bet: table.bet,
-    isPrivate: table.isPrivate,
-    createdAt: table.createdAt,
-    maxPlayers: table.maxPlayers,
-    currentNumberPlayers: table.players.length,
-    smallBlind: table.bet,
-    bigBlind: table.bet * 2,
-  }));
+// Fonction pour supprimer une table de MongoDB
+async function deleteTableFromDB(tableId) {
+  try {
+    const TableModel = require('../models/Table');
+    await TableModel.deleteOne({ id: tableId });
+    console.log(`Table ${tableId} deleted from MongoDB`);
+  } catch (error) {
+    console.error(`Error deleting table ${tableId} from MongoDB:`, error);
+  }
+}
+
+function getCurrentPlayers() {
+  return Object.values(players)
+    .filter(player => player && player.socketId && player.id && player.name)
+    .map((player) => ({
+      socketId: player.socketId,
+      id: player.id,
+      name: player.name,
+    }));
+}
+
+async function getCurrentTables() {
+  try {
+    const TableModel = require('../models/Table');
+    const tableDocs = await TableModel.find({});
+
+    return tableDocs.map((tableDoc) => ({
+      id: tableDoc.id,
+      name: tableDoc.name,
+      bet: tableDoc.bet,
+      isPrivate: tableDoc.isPrivate,
+      createdAt: tableDoc.createdAt,
+      maxPlayers: tableDoc.maxPlayers,
+      currentNumberPlayers: tableDoc.players ? tableDoc.players.length : 0,
+      smallBlind: tableDoc.bet,
+      bigBlind: tableDoc.bet * 2,
+      chatRoom: tableDoc.chatRoom,
+    }));
+  } catch (error) {
+    console.error('Error getting current tables from MongoDB:', error);
+    // Fallback sur les tables en mémoire en cas d'erreur
+    return Object.values(tables).map((table) => ({
+      id: table.id,
+      name: table.name,
+      bet: table.bet,
+      isPrivate: table.isPrivate,
+      createdAt: table.createdAt,
+      maxPlayers: table.maxPlayers,
+      currentNumberPlayers: table.players.length,
+      smallBlind: table.bet,
+      bigBlind: table.bet * 2,
+      chatRoom: table.chatRoom,
+    }));
+  }
 }
 
 const init = (socket, io) => {
+
   socket.on(FETCH_LOBBY_INFO, async (token) => {
     let user;
 
@@ -84,7 +169,7 @@ const init = (socket, io) => {
       );
 
       socket.emit(RECEIVE_LOBBY_INFO, {
-        tables: getCurrentTables(),
+        tables: await getCurrentTables(),
         players: getCurrentPlayers(),
         socketId: socket.id,
       });
@@ -92,7 +177,7 @@ const init = (socket, io) => {
     }
   });
 
-  socket.on(JOIN_TABLE, ({ id, name, bet, isPrivate, createdAt }) => {
+  socket.on(JOIN_TABLE, async ({ id, name, bet, isPrivate, createdAt }) => {
     let tableExists = false;
 
     Object.keys(tables).forEach(tableId => {
@@ -102,7 +187,7 @@ const init = (socket, io) => {
     });
 
     if (!tableExists) {
-      tables[id] = new Table(id, name, bet, isPrivate, createdAt);
+      tables[id] = new PersistentTable(id, name, bet, isPrivate, createdAt);
       // Configurer les callbacks dès la création de la table
       setupTableCallbacks(tables[id]);
     }
@@ -111,8 +196,8 @@ const init = (socket, io) => {
 
     tables[id].addPlayer(player);
 
-    socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
-    socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
+    socket.emit(TABLE_JOINED, { tables: await getCurrentTables(), id });
+    socket.broadcast.emit(TABLES_UPDATED, await getCurrentTables());
 
     if (
       tables[id].players &&
@@ -124,15 +209,15 @@ const init = (socket, io) => {
     }
   });
 
-  socket.on(LEAVE_TABLE, (tableId) => {
+  socket.on(LEAVE_TABLE, async (tableId) => {
     const table = tables[tableId];
     const player = players[socket.id];
 
     // Vérifier si la table existe
     if (!table) {
-      socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
+      socket.emit(TABLE_LEFT, { tables: await getCurrentTables(), tableId });
       socket.emit(RECEIVE_LOBBY_INFO, {
-        tables: getCurrentTables(),
+        tables: await getCurrentTables(),
         players: getCurrentPlayers(),
         socketId: socket.id,
       });
@@ -140,7 +225,7 @@ const init = (socket, io) => {
     }
 
     const seat = Object.values(table.seats).find(
-      (seat) => seat && seat.player.socketId === socket.id,
+      (seat) => seat && seat.player && seat.player.socketId === socket.id,
     );
 
     if (seat && player) {
@@ -200,11 +285,13 @@ const init = (socket, io) => {
     }
 
     if (table.players.length == 0) {
+      // Supprimer de MongoDB aussi
+      await deleteTableFromDB(tableId);
       delete tables[tableId];
     }
 
-    socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
-    socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
+    socket.broadcast.emit(TABLES_UPDATED, await getCurrentTables());
+    socket.emit(TABLE_LEFT, { tables: await getCurrentTables(), tableId });
 
     if (
       tables[tableId] &&
@@ -217,13 +304,41 @@ const init = (socket, io) => {
     }
 
     socket.emit(RECEIVE_LOBBY_INFO, {
-      tables: getCurrentTables(),
+      tables: await getCurrentTables(),
       players: getCurrentPlayers(),
       socketId: socket.id,
     });
   });
 
-  socket.on(PLAY_ONE_CARD, ({ tableId, seatId, playedCard }) => {
+  socket.on(SEND_CHAT_MESSAGE, async ({ tableId, seatId, message }) => {
+    const table = tables[tableId];
+    const seat = table?.seats[seatId];
+
+    if (table && seat && message) {
+      // Ajouter le message au chatRoom avec les métadonnées
+      const newMessage = table.chatRoom.addMessage(message, seat, new Date());
+
+      if (newMessage) {
+        console.log("Chat message added:", newMessage);
+        console.log("Total chat messages:", table.chatRoom.chatMessages.length);
+
+        // Diffuser le message à tous les joueurs de la table
+        for (let i = 0; i < table.players.length; i++) {
+          const player = table.players[i];
+          if (player && player.socketId) {
+            let playerSocketId = player.socketId;
+            io.to(playerSocketId).emit(CHAT_MESSAGE_RECEIVED, {
+              tables: await getCurrentTables(),
+              tableId,
+              chatMessage: newMessage
+            });
+          }
+        }
+      }
+    }
+  })
+
+  socket.on(PLAY_ONE_CARD, async ({ tableId, seatId, playedCard }) => {
     let table = tables[tableId];
     let seat = table.seats[seatId];
 
@@ -246,7 +361,7 @@ const init = (socket, io) => {
         });
 
         socket.emit(PLAYED_CARD, {
-          tables: getCurrentTables(),
+          tables: await getCurrentTables(),
           tableId,
           seatId
         });
@@ -311,7 +426,7 @@ const init = (socket, io) => {
     }
 
     const seat = Object.values(table.seats).find(
-      (seat) => seat && seat.player.socketId === socket.id,
+      (seat) => seat && seat.player && seat.player.socketId === socket.id,
     );
 
     let message = '';
@@ -376,7 +491,7 @@ const init = (socket, io) => {
     const table = tables[tableId];
     const seat = table.seats[seatId];
 
-    if (seat && seat.player.socketId === socket.id) {
+    if (seat && seat.player && seat.player.socketId === socket.id) {
       // Basculer l'état showingCards
       const isShowingCards = !seat.showingCards;
       seat.showingCards = isShowingCards;
@@ -407,53 +522,60 @@ const init = (socket, io) => {
     }
   });
 
-  socket.on(DISCONNECT, () => {
-    const seat = findSeatBySocketId(socket.id);
-    if (seat) {
-      updatePlayerBankroll(seat.player, seat.stack);
+  socket.on(DISCONNECT, async () => {
+    try {
+      const seat = findSeatBySocketId(socket.id);
+      if (seat && seat.player && typeof seat.stack === 'number') {
+        await updatePlayerBankroll(seat.player, seat.stack);
+      }
+
+      if (socket.id) {
+        delete players[socket.id];
+        removeFromTables(socket.id);
+      }
+
+      socket.broadcast.emit(TABLES_UPDATED, await getCurrentTables());
+      socket.broadcast.emit(PLAYERS_UPDATED, getCurrentPlayers());
+    } catch (error) {
+      console.error('Error handling disconnect:', error);
     }
-
-    delete players[socket.id];
-    removeFromTables(socket.id);
-
-    socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
-    socket.broadcast.emit(PLAYERS_UPDATED, getCurrentPlayers());
   });
 
   async function updatePlayerBankroll(player, amount) {
-    const user = await User.findById(player.id);
-    user.chipsAmount += amount;
-    await user.save();
+    try {
+      if (!player || !player.id) {
+        console.log('Invalid player object in updatePlayerBankroll:', player);
+        return;
+      }
 
-    players[socket.id].bankroll += amount;
-    io.to(socket.id).emit(PLAYERS_UPDATED, getCurrentPlayers());
+      const user = await User.findById(player.id);
+      if (!user) {
+        console.log('User not found in updatePlayerBankroll:', player.id);
+        return;
+      }
+
+      user.chipsAmount += amount;
+      await user.save();
+
+      // Vérifier si le joueur est toujours connecté
+      if (players[socket.id] && players[socket.id].bankroll !== undefined) {
+        players[socket.id].bankroll = user.chipsAmount;
+        io.to(socket.id).emit(PLAYERS_UPDATED, getCurrentPlayers());
+      }
+    } catch (error) {
+      console.error('Error in updatePlayerBankroll:', error);
+    }
   }
 
   function findSeatBySocketId(socketId) {
+    if (!socketId) return null;
+
     let foundSeat = null;
     Object.values(tables).forEach((table) => {
-      Object.values(table.seats).forEach((seat) => {
-        if (seat && seat.player.socketId === socketId) {
-          foundSeat = seat;
-        }
-      });
-    });
-    return foundSeat;
-  }
-  async function updatePlayerBankroll(player, amount) {
-    const user = await User.findById(player.id);
-    user.chipsAmount += amount;
-    await user.save();
+      if (!table || !table.seats) return;
 
-    players[socket.id].bankroll += amount;
-    io.to(socket.id).emit(PLAYERS_UPDATED, getCurrentPlayers());
-  }
-
-  function findSeatBySocketId(socketId) {
-    let foundSeat = null;
-    Object.values(tables).forEach((table) => {
       Object.values(table.seats).forEach((seat) => {
-        if (seat && seat.player.socketId === socketId) {
+        if (seat && seat.player && seat.player.socketId === socketId) {
           foundSeat = seat;
         }
       });
@@ -462,27 +584,40 @@ const init = (socket, io) => {
   }
 
   function removeFromTables(socketId) {
+    if (!socketId) return;
+
     for (let i = 0; i < Object.keys(tables).length; i++) {
-      tables[Object.keys(tables)[i]].removePlayer(socketId);
+      const tableId = Object.keys(tables)[i];
+      if (tables[tableId] && typeof tables[tableId].removePlayer === 'function') {
+        tables[tableId].removePlayer(socketId);
+      }
     }
   }
 
   function broadcastToTable(table, message = null, from = null) {
+    if (!table || !table.players || !Array.isArray(table.players)) {
+      console.error('Invalid table or players array in broadcastToTable');
+      return;
+    }
+
     for (let i = 0; i < table.players.length; i++) {
-      let socketId = table.players[i].socketId;
-      let tableCopy = hideOpponentCards(table, socketId);
-      io.to(socketId).emit(TABLE_UPDATED, {
-        table: tableCopy,
-        message,
-        from,
-      });
+      const player = table.players[i];
+      if (player && player.socketId) {
+        let socketId = player.socketId;
+        let tableCopy = hideOpponentCards(table, socketId);
+        io.to(socketId).emit(TABLE_UPDATED, {
+          table: tableCopy,
+          message,
+          from,
+        });
+      }
     }
   }
 
   // Fonction pour configurer les callbacks de la table
   function setupTableCallbacks(table) {
     // Callback pour le jeu automatique
-    table.onAutoPlayCard = (seatId, playedCard) => {
+    table.onAutoPlayCard = async (seatId, playedCard) => {
       // Notifier tous les joueurs qu'une carte a été jouée automatiquement
       if (table.seats[seatId]) {
         let seat = table.seats[seatId];
@@ -496,7 +631,7 @@ const init = (socket, io) => {
         console.log(`[chooseRandomCard] Added card to current round cards. Total cards: ${table.currentRoundCards.length}`);
 
         socket.emit(PLAYED_CARD, {
-          tables: getCurrentTables(),
+          tables: await getCurrentTables(),
           tableId: table.id,
           seatId
         });
@@ -641,8 +776,10 @@ const init = (socket, io) => {
       let seat = tableCopy.seats[i];
       if (
         seat &&
-        seat.hand.length > 0
-        &&
+        seat.hand &&
+        Array.isArray(seat.hand) &&
+        seat.hand.length > 0 &&
+        seat.player &&
         seat.player.socketId !== socketId &&
         !(seat.lastAction === WINNER && tableCopy.wentToShowdown) &&
         !seat.showingCards  // Ne pas cacher si le joueur montre ses cartes
@@ -654,4 +791,7 @@ const init = (socket, io) => {
   }
 };
 
-module.exports = { init };
+module.exports = {
+  init,
+  restoreTablesFromDB
+};
