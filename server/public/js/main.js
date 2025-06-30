@@ -431,13 +431,13 @@ function Seat({
       <ul>
         <li>
           <strong>Hand:</strong>{' '}
-          {seat.hand && seat.hand !== [] && seat.hand[0] && seat.hand[0].suit}
+          {seat.hand && seat.hand.length > 0 && seat.hand[0] && seat.hand[0].suit}
           {seat.hand &&
-            seat.hand !== [] &&
+            seat.hand.length > 0 &&
             seat.hand[0] &&
             seat.hand[0].rank}{' '}
-          {seat.hand && seat.hand !== [] && seat.hand[1] && seat.hand[1].suit}
-          {seat.hand && seat.hand !== [] && seat.hand[1] && seat.hand[1].rank}
+          {seat.hand && seat.hand.length > 0 && seat.hand[1] && seat.hand[1].suit}
+          {seat.hand && seat.hand.length > 0 && seat.hand[1] && seat.hand[1].rank}
         </li>
         <li>
           <strong>Bet:</strong> {seat.bet}
