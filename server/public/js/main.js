@@ -101,24 +101,19 @@ function Game({ setConnected }) {
 
   React.useEffect(() => {
     socket.on(RECEIVE_LOBBY_INFO, ({ tables, players, socketId }) => {
-      // console.log(RECEIVE_LOBBY_INFO, tables, players, socketId);
       setTables(tables);
       setPlayers(players);
       setSocketId(socketId);
     });
 
     socket.on(PLAYERS_UPDATED, (players) => {
-      // console.log(PLAYERS_UPDATED, players);
       setPlayers(players);
       players[socketIdRef.current] &&
         setBankroll(players[socketIdRef.current].bankroll);
     });
 
     socket.on(TABLES_UPDATED, (tables) => {
-      // console.log(TABLES_UPDATED, tables);
       setTables(tables);
-      // currentTableRef.current &&
-      //   setCurrentTable(tables[currentTableRef.current.id]);
     });
 
     socket.on(TABLE_UPDATED, ({ table, message, from }) => {
@@ -127,12 +122,10 @@ function Game({ setConnected }) {
     });
 
     socket.on(TABLE_JOINED, ({ tables, tableId }) => {
-      // console.log(TABLE_JOINED, tables, tableId);
       setCurrentTable(tables[tableId]);
     });
 
     socket.on(TABLE_LEFT, ({ tables, tableId }) => {
-      // console.log(TABLE_LEFT, tables, tableId);
       setCurrentTable(null);
     });
 
@@ -279,7 +272,6 @@ function Table({
   call,
   raise,
 }) {
-  console.log(currentTable);
   return (
     <div className="container">
       <h1 className="text-center">Table {currentTable.id}</h1>
@@ -424,7 +416,6 @@ function Seat({
   raise,
   currentTable,
 }) {
-  console.log(seat);
   return (
     <div className="col-3 text-center m-4">
       <h5>{seat.player.name}</h5>

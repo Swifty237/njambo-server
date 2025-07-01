@@ -131,11 +131,8 @@ class Table {
   }
 
   nextActivePlayer(player, places) {
-    console.log(`[nextActivePlayer] Finding next player after ${player} with ${places} places`);
-
     // S'assurer que player et places sont des nombres valides
     if (!player || isNaN(player) || !places || isNaN(places)) {
-      console.log(`[nextActivePlayer] Invalid player or places, defaulting to first seat`);
       return 1;
     }
 
@@ -144,27 +141,22 @@ class Table {
     let placesToMove = parseInt(places);
 
     if (playerNum < 1 || playerNum > this.maxPlayers || placesToMove < 1) {
-      console.log(`[nextActivePlayer] Values out of range, defaulting to first seat`);
       return 1;
     }
 
     // Obtenir les joueurs actifs
     const currentPlayers = this.currentHandPlayers();
-    console.log(`[nextActivePlayer] Current players: ${currentPlayers.length}`);
 
     // S'il n'y a pas de joueurs ou un seul joueur
     if (currentPlayers.length === 0) {
-      console.log(`[nextActivePlayer] No active players`);
       return 1;
     }
     if (currentPlayers.length === 1) {
-      console.log(`[nextActivePlayer] Only one player, returning current seat: ${playerNum}`);
       return playerNum;
     }
 
     // Construire un tableau des seatId des joueurs participants
     const activePlayerIds = currentPlayers.map(seat => parseInt(seat.id));
-    console.log(`[nextActivePlayer] Active player IDs: ${activePlayerIds.join(', ')}`);
 
     // Garder la position de départ
     const startingSeat = playerNum;
@@ -180,11 +172,8 @@ class Table {
         currentSeat = currentSeat - this.maxPlayers;
       }
 
-      console.log(`[nextActivePlayer] Checking seat ${currentSeat}`);
-
       // Si on trouve un joueur actif, le retourner
       if (activePlayerIds.includes(currentSeat)) {
-        console.log(`[nextActivePlayer] Found next active player: ${currentSeat}`);
         return currentSeat;
       }
 
@@ -192,13 +181,11 @@ class Table {
     } while (currentSeat !== startingSeat && iterations < maxIterations);
 
     // Si on a fait le tour complet sans trouver de joueur actif
-    console.log(`[nextActivePlayer] No other active players found, returning first active player`);
     return activePlayerIds[0] || 1;
   }
 
   startHand() {
     try {
-      console.log('Starting new hand...');
       this.deck = new Deck();
 
       this.resetPot();
@@ -215,17 +202,13 @@ class Table {
       this.demandedSuit = null;
       this.currentRoundCards = [];
       this.roundNumber = 1;
-      // this.turn = null;  // Définir turn à null juste avant setTurn()
-      // this.lastWinningSeat = null; // Réinitialiser le dernier gagnant
 
       // Au début d'une nouvelle main, on utilise activePlayers() pour obtenir tous les joueurs disponibles
       const availablePlayers = this.activePlayers();
-      console.log(`Available players: ${availablePlayers.length}`);
 
       if (availablePlayers.length > 1) {
         // Enregistrer les participants à cette main
         this.handParticipants = availablePlayers.map(seat => seat.id);
-        console.log(`Hand participants: ${this.handParticipants}`);
 
         if (this.countHand > 0) {
           // Si on a un gagnant de la main précédente, il devient le nouveau dealer
@@ -241,8 +224,6 @@ class Table {
           }
         }
 
-        console.log(`Button position: ${this.button}`);
-
         this.handOver = false; // Définir handOver à false AVANT de configurer les tours
 
         this.setBlinds();
@@ -250,19 +231,12 @@ class Table {
         this.dealCard();
         this.updateHistory();
 
-        console.log(`Current turn: ${this.turn}`);
-        console.log(`Hand participants: ${this.handParticipants.length}`);
-        console.log(`Cards dealt to players`);
-        console.log(`Hand over status: ${this.handOver}`);
-
         this.countHand++;
 
         // S'assurer que le callback est configuré avant de démarrer les timers
         if (!this.onAutoPlayCard) {
           console.warn('Warning: onAutoPlayCard callback is not configured in startHand');
         }
-      } else {
-        console.log('Not enough players to start hand');
       }
     } catch (error) {
       console.error("Error in startHand:", error);
@@ -308,7 +282,6 @@ class Table {
   setPlayerTurn(newTurn) {
     // Éviter de définir un nouveau tour si la main est terminée
     if (this.handCompleted) {
-      console.log(`[setPlayerTurn] Hand is completed, ignoring turn set`);
       return;
     }
 
@@ -339,12 +312,9 @@ class Table {
       this.startTurnTimer(
         this.turn,
         (seatId) => {
-          console.log(`Timer callback executing for seat ${seatId}`);
           const result = this.chooseRandomCard(seatId);
           if (result) {
-            console.log(`Successfully played random card:`, result.card);
             if (this.onAutoPlayCard) {
-              console.log(`Calling onAutoPlayCard callback`);
               // Le changement de tour sera géré par le callback onAutoPlayCard
               this.onAutoPlayCard(seatId, result.card);
             }
@@ -360,20 +330,17 @@ class Table {
 
     // Vérifier s'il y a des joueurs actifs
     if (currentPlayers.length === 0) {
-      console.log(`[setButton] No active players, cannot set button`);
       return;
     }
 
     // Si c'est la première main (this.countHand === 0), le button est déjà défini
     // mais il faut quand même définir le premier joueur
     if (this.countHand === 0) {
-      console.log(`[setButton] First hand, button already set to ${this.button}`);
       if (this.button && this.seats[this.button]) {
         this.setPlayerTurn(this.button);
       } else {
         // Si le button n'est pas valide, prendre le premier joueur actif
         this.button = currentPlayers[0].id;
-        console.log(`[setButton] Invalid button, setting to first active player: ${this.button}`);
         this.setPlayerTurn(this.button);
       }
     } else {
@@ -381,25 +348,21 @@ class Table {
       const nextButton = this.lastWinningSeat;
       if (nextButton && this.seats[nextButton]) {
         this.button = nextButton;
-        console.log(`[setButton] Button set to next active player: ${this.button}`);
       } else {
         // Si pas de vainqueur valide, prendre le premier joueur actif
         this.button = currentPlayers[0].id;
-        console.log(`[setButton] No valid next player, setting button to first active player: ${this.button}`);
       }
     }
 
     // S'il y a moins d'un joueur sur la table, le bouton c'est le dernier joueur restant
     if (currentPlayers.length === 1) {
       this.button = currentPlayers[0].id;
-      console.log(`[setButton] Only one player left, button set to: ${this.button}`);
     }
 
     // Si ce n'est pas la première main de la partie, mais que c'est le premier joueur de la nouvelle main
     // (currentRoundCards = [] ou roundNumber = 1), le joueur button doit être le premier à jouer
     if (this.countHand > 0 && (this.currentRoundCards.length === 0 || this.roundNumber === 1)) {
       if (this.button && this.seats[this.button]) {
-        console.log(`[setButton] Setting first player of new hand to button: ${this.button}`);
         this.setPlayerTurn(this.button);
       }
     }
@@ -471,7 +434,6 @@ class Table {
   }
 
   endHand() {
-    console.log(`[endHand] Starting end hand process`);
     this.clearSeatTurns();
     this.handOver = true;
     this.sitOutFeltedPlayers();
@@ -540,13 +502,10 @@ class Table {
 
   // Démarrer un nouveau tour
   startNewRound() {
-    console.log(`[startNewRound] Starting round ${this.roundNumber + 1}`);
-
     this.roundNumber++;
 
     // Vérifier si c'est le dernier tour (5ème tour)
     if (this.roundNumber > 5) {
-      console.log(`[startNewRound] Game over (round > 5)`);
       this.handOver = true;
       return;
     }
@@ -557,16 +516,12 @@ class Table {
 
     // S'assurer que le dernier gagnant commence le nouveau round
     if (this.lastRoundWinner) {
-      console.log(`[startNewRound] Setting turn to last round winner: ${this.lastRoundWinner}`);
       this.turn = this.lastRoundWinner;
     }
-
-    console.log(`[startNewRound] Round ${this.roundNumber} ready, handOver: ${this.handOver}`);
 
     // Vérifier s'il reste des joueurs participants avec des cartes
     const currentPlayers = this.currentHandPlayers().filter(seat => seat.hand.length > 0);
     if (currentPlayers.length < 2) {
-      console.log(`[startNewRound] Not enough players with cards, ending hand`);
       this.handOver = true;
       return;
     }
@@ -575,10 +530,7 @@ class Table {
   // Trouver le gagnant du tour actuel
   findRoundWinner() {
     try {
-      console.log(`[findRoundWinner] Starting with ${this.currentRoundCards.length} cards played`);
-
       if (this.currentRoundCards.length === 0) {
-        console.log(`[findRoundWinner] No cards played yet`);
         return this.turn; // Retourner le joueur actuel si aucune carte n'a été jouée
       }
 
@@ -588,7 +540,6 @@ class Table {
         console.error(`[findRoundWinner] Invalid first player seat: ${firstPlayer}`);
         return null;
       }
-      console.log(`[findRoundWinner] First player: ${firstPlayer}`);
 
       // Vérifier si tous les joueurs participants ont joué
       const currentPlayers = this.currentHandPlayers().filter(seat =>
@@ -596,21 +547,15 @@ class Table {
       );
       const playersWhoPlayed = [...new Set(this.currentRoundCards.map(card => parseInt(card.seatId)))];
 
-      console.log(`[findRoundWinner] Current players:`, currentPlayers.map(p => p.id));
-      console.log(`[findRoundWinner] Players who played:`, playersWhoPlayed);
-
       if (!currentPlayers.every(seat => playersWhoPlayed.includes(parseInt(seat.id)))) {
-        console.log(`[findRoundWinner] Not all players have played yet`);
         return firstPlayer;
       }
 
       // Trouver toutes les cartes de la couleur demandée
       const suitCards = this.currentRoundCards.filter(card => card.card.suit === this.demandedSuit);
-      console.log(`[findRoundWinner] Found ${suitCards.length} cards of demanded suit ${this.demandedSuit}`);
 
       // Si aucune carte n'est de la couleur demandée, le premier joueur gagne automatiquement
       if (suitCards.length === 0) {
-        console.log(`[findRoundWinner] No cards of demanded suit, first player wins`);
         return firstPlayer;
       }
 
@@ -621,15 +566,12 @@ class Table {
 
       for (let i = 1; i < suitCards.length; i++) {
         const currentRank = ranks.indexOf(suitCards[i].card.rank);
-        console.log(`[findRoundWinner] Comparing ranks: ${highestCard.card.rank} vs ${suitCards[i].card.rank}`);
 
         if (currentRank > highestRank) {
           highestCard = suitCards[i];
           highestRank = currentRank;
         }
       }
-
-      console.log(`[findRoundWinner] Winner is seat ${highestCard.seatId} with ${highestCard.card.rank} of ${highestCard.card.suit}`);
 
       // Si c'est le dernier tour (5ème), ce gagnant sera le gagnant de la partie
       if (this.roundNumber >= 5) {
@@ -650,67 +592,42 @@ class Table {
     const currentPlayers = this.currentHandPlayers();
     const playersWithCards = currentPlayers.filter(seat => seat.hand.length > 0);
 
-    console.log("playersWithCards", playersWithCards.map(p => `${p.id}(${p.hand.length} cards)`));
-
     // Obtenir les joueurs qui ont joué ce tour (sans doublons, en s'assurant que tous sont des nombres)
     const playersWhoPlayed = [...new Set(this.currentRoundCards.map(card => parseInt(card.seatId)))];
 
-    console.log("playersWhoPlayed", playersWhoPlayed);
-
     // Si aucun joueur n'a de cartes, le jeu est terminé
     if (playersWithCards.length === 0) {
-      console.log("No players with cards left - game over");
       return true;
     }
 
     // Un tour est complet quand tous les joueurs avec des cartes ont joué une fois dans ce tour
-    const allPlayersPlayed = playersWithCards.every(seat =>
+    return playersWithCards.every(seat =>
       playersWhoPlayed.includes(parseInt(seat.id))
     );
-
-    console.log(`Round complete check: ${allPlayersPlayed} (${playersWhoPlayed.length}/${playersWithCards.length})`);
-
-    return allPlayersPlayed;
   }
 
   // Méthodes pour gérer le timer de tour
   startTurnTimer(seatId, callback) {
     // Vérifier si le siège est toujours valide
     if (!this.seats[seatId] || this.handOver) {
-      console.log(`Cannot start timer: seat ${seatId} invalid or hand is over`);
       return;
     }
 
-    // S'assurer qu'il n'y a pas de timer actif
-    // this.clearTurnTimer();
-
-    console.log(`Starting timer for seat ${seatId}`);
-
     // Créer un nouveau timer
     this.turnTimer = setTimeout(() => {
-      console.log(`Timer expired for seat ${seatId}`);
-
-      // Marquer le timer comme expiré pour éviter les conflits
-      // const expiredTimer = this.turnTimer;
       this.turnTimer = null;
 
       // Vérifier à nouveau si le siège est toujours valide
       if (this.seats[seatId] && !this.handOver && this.turn === seatId) {
-        console.log(`Conditions met for seat ${seatId}, executing callback...`);
-
         // Exécuter le callback dans un try-catch
         if (callback) {
           try {
-            // Exécuter le callback
             callback(seatId);
           } catch (error) {
             console.error(`Error in timer callback for seat ${seatId}:`, error);
           }
-        } else {
-          console.warn(`No callback provided for timer`);
         }
       } else {
-        console.log(`Conditions not met for seat ${seatId}, changing turn`);
         // Passer au joueur suivant si les conditions ne sont pas remplies
         const nextPlayer = this.nextActivePlayer(seatId, 1);
         if (nextPlayer && nextPlayer !== seatId) {
@@ -722,18 +639,12 @@ class Table {
         }
       }
     }, this.turnTime);
-
-    console.log(`Timer started successfully for seat ${seatId}`);
   }
 
   clearTurnTimer() {
-    console.log('Clearing turn timer...');
     if (this.turnTimer) {
-      console.log('Found active timer, clearing it');
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
-    } else {
-      console.log('No active timer found');
     }
   }
 
@@ -779,11 +690,8 @@ class Table {
   }
 
   chooseRandomCard(seatId, callback) {
-    console.log(`[chooseRandomCard] Starting for seat ${seatId}`);
-
     const seat = this.seats[seatId];
     if (!seat || seat.hand.length === 0) {
-      console.log(`[chooseRandomCard] Invalid seat or no cards in hand`);
       this.endHand()
       return null;
     }
@@ -791,43 +699,33 @@ class Table {
     let cardToPlay;
     const isFirstPlayer = this.currentRoundCards.length === 0;
 
-    console.log(`[chooseRandomCard] Is first player: ${isFirstPlayer}`);
-    console.log(`[chooseRandomCard] Current demanded suit: ${this.demandedSuit}`);
-    console.log(`[chooseRandomCard] Cards in hand: ${seat.hand.length}`);
-
     // Si c'est le premier joueur du tour
     if (isFirstPlayer && this.demandedSuit === null) {
       // Pour le premier joueur, choisir une carte au hasard
       const randomIndex = Math.floor(Math.random() * seat.hand.length);
       cardToPlay = seat.hand[randomIndex];
       this.demandedSuit = cardToPlay.suit; // Définir la couleur demandée
-      console.log(`[chooseRandomCard] First player chose ${cardToPlay.rank} of ${cardToPlay.suit}`);
     } else {
       // Chercher toutes les cartes de la couleur demandée
       const validCards = seat.hand.filter(card => card.suit === this.demandedSuit);
-      console.log(`[chooseRandomCard] Found ${validCards.length} valid cards of suit ${this.demandedSuit}`);
 
       if (validCards.length > 0) {
         // Choisir une carte au hasard parmi les cartes valides
         const randomIndex = Math.floor(Math.random() * validCards.length);
         cardToPlay = validCards[randomIndex];
-        console.log(`[chooseRandomCard] Chose valid card: ${cardToPlay.rank} of ${cardToPlay.suit}`);
       } else {
         // Si pas de carte de la couleur demandée, choisir une carte au hasard
         const randomIndex = Math.floor(Math.random() * seat.hand.length);
         cardToPlay = seat.hand[randomIndex];
-        console.log(`[chooseRandomCard] No valid cards, chose: ${cardToPlay.rank} of ${cardToPlay.suit}`);
       }
     }
 
     // Appeler le callback pour continuer le jeu
     if (callback) {
-      console.log(`[chooseRandomCard] Executing callback`);
       callback(seatId);
     }
 
     // Retourner la carte jouée pour que le socket puisse émettre PLAYED_CARD
-    console.log(`[chooseRandomCard] Returning played card`);
     return {
       card: cardToPlay,
       nextSeatId: this.turn
@@ -866,11 +764,8 @@ class Table {
 
   changeTurn(lastTurn) {
     try {
-      console.log(`[changeTurn] Starting change turn from seat ${lastTurn}`);
-
       // Éviter les changements de tour multiples
       if (this.handCompleted) {
-        console.log(`[changeTurn] Hand is completed, ignoring turn change`);
         return;
       }
 
@@ -878,21 +773,17 @@ class Table {
       this.clearTurnTimer();
 
       if (this.handOver) {
-        console.log(`[changeTurn] Hand is over, returning`);
         return;
       }
 
       const roundComplete = this.isRoundComplete();
-      console.log(`[changeTurn] Round complete: ${roundComplete}`);
 
       // Vérifier si le tour actuel est terminé
       if (roundComplete) {
         this.lastRoundWinner = this.findRoundWinner();
-        console.log(`[changeTurn] Round winner: ${this.lastRoundWinner}`);
 
         // Vérifier si c'est la fin du jeu (5 tours ou plus)
         if (this.roundNumber >= 5) {
-          console.log(`[changeTurn] Game over (round >= 5)`);
           this.handOver = true;
           this.turn = null;
           this.lastWinningSeat = this.lastRoundWinner;
@@ -905,7 +796,6 @@ class Table {
         const playersWithCards = currentPlayers.filter(seat => seat.hand.length > 0);
 
         if (playersWithCards.length < 2) {
-          console.log(`[changeTurn] Not enough players with cards for next round, ending game`);
           this.handOver = true;
           this.turn = null;
           //Le gagnant dans ce cas c'est le dernier joueur restant
@@ -915,7 +805,6 @@ class Table {
         }
 
         // Démarrer un nouveau tour avec le gagnant comme premier joueur
-        console.log(`[changeTurn] Starting new round with winner ${this.lastRoundWinner}`);
         this.startNewRound();
         this.setPlayerTurn(this.lastRoundWinner);
         return;
@@ -923,12 +812,10 @@ class Table {
 
       // Si le tour n'est pas terminé, passer au joueur suivant
       let nextPlayer = this.nextActivePlayer(lastTurn, 1);
-      console.log(`[changeTurn] Next player: ${nextPlayer}`);
 
       // Vérifier s'il reste des joueurs avec des cartes
       const playersWithCards = this.currentHandPlayers().filter(seat => seat.hand.length > 0);
       if (playersWithCards.length === 0) {
-        console.log(`[changeTurn] No players with cards left, ending hand`);
         this.handOver = true;
         this.lastWinningSeat = this.findRoundWinner();
         this.determinePotWinner();
@@ -936,27 +823,21 @@ class Table {
       }
 
       if (nextPlayer && this.seats[nextPlayer] && this.seats[nextPlayer].hand.length > 0) {
-        console.log(`[changeTurn] Setting turn to next player ${nextPlayer}`);
         this.setPlayerTurn(nextPlayer);
       } else {
-        console.log(`[changeTurn] No valid next player, ending hand`);
         this.handOver = true;
 
         // Déterminer le gagnant du dernier tour joué
         if (this.currentRoundCards.length > 0) {
           this.lastRoundWinner = this.findRoundWinner();
-          // this.lastWinningSeat = this.lastRoundWinner;
-          console.log(`[changeTurn] Last round winner: ${this.lastRoundWinner}`);
         }
 
         // Si c'est le dernier tour (5ème), déterminer le gagnant final
         if (this.roundNumber >= 5) {
-          console.log(`[changeTurn] Final round, determining pot winner`);
           this.lastWinningSeat = this.lastRoundWinner;
           this.determinePotWinner();
         } else {
           // Sinon, commencer un nouveau tour avec le dernier gagnant
-          console.log(`[changeTurn] Starting new round with last winner ${this.lastRoundWinner}`);
           this.startNewRound();
           this.setPlayerTurn(this.lastRoundWinner);
         }
@@ -967,7 +848,6 @@ class Table {
 
       if (this.currentRoundCards.length > 0) {
         this.lastRoundWinner = this.findRoundWinner();
-        console.log(`[changeTurn] Error recovery - Last round winner: ${this.lastRoundWinner}`);
       }
       this.lastWinningSeat = this.lastRoundWinner;
       this.determinePotWinner();
@@ -976,8 +856,6 @@ class Table {
 
 
   determinePotWinner() {
-    console.log(`[determinePotWinner] Starting determination of winner`);
-
     // Vérifier d'abord les combinaisons gagnantes des joueurs qui montrent leurs cartes
     let bestCombo = null;
     let winnerByCombination = null;
@@ -988,20 +866,16 @@ class Table {
       if (seat && seat.showingCards && seat.hand.length === 5) {
         const combo = findBestCombination(seat.hand);
         if (combo) {
-          console.log(`[determinePotWinner] Found combination for seat ${i}:`, combo);
           if (!bestCombo || compareCombinations(combo, bestCombo) > 0) {
             bestCombo = combo;
             winnerByCombination = seat;
           }
         }
-      } else if (seat && seat.showingCards && seat.hand.length < 5) {
-        console.log(`[determinePotWinner] Seat ${i} showed cards but has only ${seat.hand.length} cards - no valid combination possible`);
       }
     }
 
     // Si un joueur a une combinaison gagnante, il gagne immédiatement
     if (winnerByCombination) {
-      console.log(`[determinePotWinner] Winner by combination:`, winnerByCombination.id);
       this.lastWinningSeat = winnerByCombination.id;
 
       const comboNames = {
@@ -1040,7 +914,6 @@ class Table {
     // Si personne n'a de combinaison gagnante, utiliser la logique normale du dernier gagnant
     if (this.lastWinningSeat) {
       const winner = this.seats[this.lastWinningSeat];
-      console.log(`[determinePotWinner] Winner by last winning seat:`, this.lastWinningSeat);
 
       // Vérifier si c'est un showdown sans combinaison gagnante
       let wasShowdown = false;
@@ -1053,7 +926,6 @@ class Table {
 
       // Si c'était un showdown sans combinaison gagnante, continuer la partie normalement
       if (wasShowdown) {
-        console.log(`[determinePotWinner] No winning combination in showdown, continuing game`);
         return;
       }
 
@@ -1064,13 +936,9 @@ class Table {
         // Vérifier la dernière carte du gagnant
         const lastCard = this.getLastPlayedCard(this.lastWinningSeat);
         if (lastCard && this.isRankThree(lastCard)) {
-          console.log(`[determinePotWinner] Winner's last card is a 3`);
-
           // Vérifier les deux dernières cartes
           const lastTwoCards = this.getLastTwoPlayedCards(this.lastWinningSeat);
           if (lastTwoCards.length === 2 && this.isRankThree(lastTwoCards[0]) && this.isRankThree(lastTwoCards[1])) {
-            console.log(`[determinePotWinner] Winner's last TWO cards are 3s, collecting bets twice`);
-
             winMessage = `${winner.player.name} à mis la 33 et vous avez bu!`;
             this.winMessages.push(winMessage);
 
@@ -1078,7 +946,6 @@ class Table {
             this.collectBetsExcept(this.lastWinningSeat);
             this.collectBetsExcept(this.lastWinningSeat);
           } else {
-            console.log(`[determinePotWinner] Only last card is 3, collecting bets once`);
             winMessage = `${winner.player.name} à mis le korat, c'est dedans!`;
             this.winMessages.push(winMessage);
 
@@ -1132,13 +999,11 @@ class Table {
 
     // Vérifier si des cartes ont été jouées ce tour
     if (this.currentRoundCards.length === 0) {
-      console.log(`[collectBetsExcept] No cards played this round, skipping collection`);
       return 0;
     }
 
     // Récupérer les IDs uniques des joueurs ayant participé
     const playersWhoPlayed = [...new Set(this.currentRoundCards.map(card => parseInt(card.seatId)))];
-    console.log(`[collectBetsExcept] Players who played:`, playersWhoPlayed);
 
     // Pour chaque joueur ayant joué
     playersWhoPlayed.forEach(seatId => {
@@ -1152,13 +1017,10 @@ class Table {
           this.pot += parseInt(this.bet);
           // Ajouter au total collecté
           totalCollected += parseInt(this.bet);
-
-          console.log(`[collectBetsExcept] Collected ${this.bet} from seat ${seatId}, new stack: ${seat.stack}`);
         }
       }
     });
 
-    console.log(`[collectBetsExcept] Total collected: ${totalCollected}, new pot: ${this.pot}`);
     return totalCollected;
   }
 
@@ -1170,7 +1032,6 @@ class Table {
   getLastPlayedCard(seatId) {
     // Si aucune carte n'a été jouée ce tour
     if (this.currentRoundCards.length === 0) {
-      console.log(`[getLastPlayedCard] No cards played this round`);
       return null;
     }
 
@@ -1178,12 +1039,10 @@ class Table {
     for (let i = this.currentRoundCards.length - 1; i >= 0; i--) {
       const playedCard = this.currentRoundCards[i];
       if (parseInt(playedCard.seatId) === parseInt(seatId)) {
-        console.log(`[getLastPlayedCard] Found last card for seat ${seatId}:`, playedCard.card);
         return playedCard.card;
       }
     }
 
-    console.log(`[getLastPlayedCard] No card found for seat ${seatId}`);
     return null;
   }
 
@@ -1197,7 +1056,6 @@ class Table {
 
     // Si aucune carte n'a été jouée ce tour
     if (this.currentRoundCards.length === 0) {
-      console.log(`[getLastTwoPlayedCards] No cards played this round`);
       return lastCards;
     }
 
@@ -1209,7 +1067,6 @@ class Table {
       }
     }
 
-    console.log(`[getLastTwoPlayedCards] Found ${lastCards.length} cards for seat ${seatId}:`, lastCards);
     return lastCards;
   }
 
@@ -1220,13 +1077,10 @@ class Table {
    */
   isRankThree(card) {
     if (!card || !card.rank) {
-      console.log(`[isRankThree] Invalid card:`, card);
       return false;
     }
 
-    const isThree = card.rank === '3';
-    console.log(`[isRankThree] Card ${card.rank} of ${card.suit} is${isThree ? '' : ' not'} rank 3`);
-    return isThree;
+    return card.rank === '3';
   }
 }
 
