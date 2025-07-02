@@ -1,7 +1,6 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Table = require('../pokergame/Table');
-const PersistentTable = require('../pokergame/PersistentTable');
 const Player = require('../pokergame/Player');
 const Seat = require('../pokergame/Seat');
 const {
@@ -26,65 +25,14 @@ const {
   PLAYED_CARD,
   SHOW_DOWN,
   SEND_CHAT_MESSAGE,
-  CHAT_MESSAGE_RECEIVED
+  CHAT_MESSAGE_RECEIVED,
+  RECONNECT_PLAYER,
+  PLAYER_RECONNECTED
 } = require('../pokergame/actions');
 const config = require('../config');
 
 const tables = {};
 const players = {};
-
-// Fonction pour restaurer les tables depuis MongoDB au démarrage
-async function restoreTablesFromDB() {
-  try {
-    const TableModel = require('../models/Table');
-    const tableDocs = await TableModel.find({});
-
-    for (const tableDoc of tableDocs) {
-      const tableData = tableDoc.toObject();
-      const table = new PersistentTable(
-        tableData.id,
-        tableData.name,
-        tableData.bet,
-        tableData.isPrivate,
-        tableData.createdAt
-      );
-
-      // Restaurer les autres propriétés (sans les players pour l'instant)
-      Object.assign(table, {
-        maxPlayers: tableData.maxPlayers,
-        players: [], // Les joueurs seront ajoutés quand ils se reconnectent
-        seats: {},   // Les sièges seront restaurés mais sans les joueurs actifs
-        button: tableData.button,
-        turn: null,  // Pas de tour actif au redémarrage
-        lastWinningSeat: tableData.lastWinningSeat,
-        pot: tableData.pot || 0,
-        callAmount: tableData.callAmount,
-        handOver: true, // Marquer la main comme terminée au redémarrage
-        winMessages: [],
-        gameNotifications: [],
-        history: tableData.history || [],
-        chatRoom: tableData.chatRoom || { chatMessages: [] }
-      });
-
-      // Note: Les sièges et joueurs seront restaurés quand les joueurs se reconnectent
-      // Cela évite les erreurs avec les socketId invalides
-
-      tables[table.id] = table;
-    }
-  } catch (error) {
-    console.error('Error restoring tables from MongoDB:', error);
-  }
-}
-
-// Fonction pour supprimer une table de MongoDB
-async function deleteTableFromDB(tableId) {
-  try {
-    const TableModel = require('../models/Table');
-    await TableModel.deleteOne({ id: tableId });
-  } catch (error) {
-    console.error(`Error deleting table ${tableId} from MongoDB:`, error);
-  }
-}
 
 function getCurrentPlayers() {
   return Object.values(players)
@@ -96,39 +44,25 @@ function getCurrentPlayers() {
     }));
 }
 
-async function getCurrentTables() {
-  try {
-    const TableModel = require('../models/Table');
-    const tableDocs = await TableModel.find({});
-
-    return tableDocs.map((tableDoc) => ({
-      id: tableDoc.id,
-      name: tableDoc.name,
-      bet: tableDoc.bet,
-      isPrivate: tableDoc.isPrivate,
-      createdAt: tableDoc.createdAt,
-      maxPlayers: tableDoc.maxPlayers,
-      currentNumberPlayers: tableDoc.players ? tableDoc.players.length : 0,
-      smallBlind: tableDoc.bet,
-      bigBlind: tableDoc.bet * 2,
-      chatRoom: tableDoc.chatRoom,
-    }));
-  } catch (error) {
-    console.error('Error getting current tables from MongoDB:', error);
-    // Fallback sur les tables en mémoire en cas d'erreur
-    return Object.values(tables).map((table) => ({
-      id: table.id,
-      name: table.name,
-      bet: table.bet,
-      isPrivate: table.isPrivate,
-      createdAt: table.createdAt,
-      maxPlayers: table.maxPlayers,
-      currentNumberPlayers: table.players.length,
-      smallBlind: table.bet,
-      bigBlind: table.bet * 2,
-      chatRoom: table.chatRoom,
-    }));
-  }
+function getCurrentTables() {
+  return Object.values(tables).map((table) => ({
+    id: table.id,
+    name: table.name,
+    seats: table.seats,
+    players: table.players,
+    bet: table.bet,
+    callAmount: table.callAmount,
+    pot: table.pot,
+    winMessages: table.winMessages,
+    button: table.button,
+    handOver: table.handOver,
+    isPrivate: table.isPrivate,
+    createdAt: table.createdAt,
+    demandedSuit: table.demandedSuit,
+    currentRoundCards: table.currentRoundCards,
+    roundNumber: table.roundNumber,
+    chatRoom: table.chatRoom,
+  }));
 }
 
 const init = (socket, io) => {
@@ -164,7 +98,7 @@ const init = (socket, io) => {
       );
 
       socket.emit(RECEIVE_LOBBY_INFO, {
-        tables: await getCurrentTables(),
+        tables: getCurrentTables(),
         players: getCurrentPlayers(),
         socketId: socket.id,
       });
@@ -182,7 +116,7 @@ const init = (socket, io) => {
     });
 
     if (!tableExists) {
-      tables[id] = new PersistentTable(id, name, bet, isPrivate, createdAt);
+      tables[id] = new Table(id, name, bet, isPrivate, createdAt);
       // Configurer les callbacks dès la création de la table
       setupTableCallbacks(tables[id]);
     }
@@ -191,8 +125,8 @@ const init = (socket, io) => {
 
     tables[id].addPlayer(player);
 
-    socket.emit(TABLE_JOINED, { tables: await getCurrentTables(), id });
-    socket.broadcast.emit(TABLES_UPDATED, await getCurrentTables());
+    socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
+    socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
 
     if (
       tables[id].players &&
@@ -210,9 +144,9 @@ const init = (socket, io) => {
 
     // Vérifier si la table existe
     if (!table) {
-      socket.emit(TABLE_LEFT, { tables: await getCurrentTables(), tableId });
+      socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
       socket.emit(RECEIVE_LOBBY_INFO, {
-        tables: await getCurrentTables(),
+        tables: getCurrentTables(),
         players: getCurrentPlayers(),
         socketId: socket.id,
       });
@@ -275,13 +209,11 @@ const init = (socket, io) => {
     }
 
     if (table.players.length == 0) {
-      // Supprimer de MongoDB aussi
-      await deleteTableFromDB(tableId);
       delete tables[tableId];
     }
 
-    socket.broadcast.emit(TABLES_UPDATED, await getCurrentTables());
-    socket.emit(TABLE_LEFT, { tables: await getCurrentTables(), tableId });
+    socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
+    socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
 
     if (
       tables[tableId] &&
@@ -294,7 +226,7 @@ const init = (socket, io) => {
     }
 
     socket.emit(RECEIVE_LOBBY_INFO, {
-      tables: await getCurrentTables(),
+      tables: getCurrentTables(),
       players: getCurrentPlayers(),
       socketId: socket.id,
     });
@@ -304,7 +236,7 @@ const init = (socket, io) => {
     const table = tables[tableId];
     const seat = table?.seats[seatId];
 
-    if (table && seat && message) {
+    if (table && message) {
       // Ajouter le message au chatRoom avec les métadonnées
       const newMessage = table.chatRoom.addMessage(message, seat, new Date());
 
@@ -315,7 +247,7 @@ const init = (socket, io) => {
           if (player && player.socketId) {
             let playerSocketId = player.socketId;
             io.to(playerSocketId).emit(CHAT_MESSAGE_RECEIVED, {
-              tables: await getCurrentTables(),
+              tables: getCurrentTables(),
               tableId,
               chatMessage: newMessage
             });
@@ -348,7 +280,7 @@ const init = (socket, io) => {
         });
 
         socket.emit(PLAYED_CARD, {
-          tables: await getCurrentTables(),
+          tables: getCurrentTables(),
           tableId,
           seatId
         });
@@ -518,7 +450,7 @@ const init = (socket, io) => {
         removeFromTables(socket.id);
       }
 
-      socket.broadcast.emit(TABLES_UPDATED, await getCurrentTables());
+      socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
       socket.broadcast.emit(PLAYERS_UPDATED, getCurrentPlayers());
     } catch (error) {
       console.error('Error handling disconnect:', error);
@@ -610,7 +542,7 @@ const init = (socket, io) => {
           card: playedCard
         });
         socket.emit(PLAYED_CARD, {
-          tables: await getCurrentTables(),
+          tables: getCurrentTables(),
           tableId: table.id,
           seatId
         });
@@ -761,6 +693,5 @@ const init = (socket, io) => {
 };
 
 module.exports = {
-  init,
-  restoreTablesFromDB
+  init
 };

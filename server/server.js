@@ -5,16 +5,13 @@ const connectDB = require('./config/db');
 const configureMiddleware = require('./middleware');
 const configureRoutes = require('./routes');
 const socketio = require('socket.io');
-const { init: gameSocketInit, restoreTablesFromDB } = require('./socket/index');
+const { init: gameSocketInit } = require('./socket/index');
 
 // Connect and get reference to mongodb instance
 let db;
 
 (async function () {
   db = await connectDB();
-
-  // Restaurer les tables depuis MongoDB
-  await restoreTablesFromDB();
   console.log('Server initialization complete');
 })().catch(err => {
   console.error('Failed to initialize server:', err);
