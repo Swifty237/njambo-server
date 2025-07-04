@@ -45,75 +45,76 @@ function getCurrentPlayers() {
 }
 
 // Route GET /api/play - Rejoindre une table via des paramètres
-router.get('/', async (req, res) => {
-    try {
-        const { tableId, name, bet, isPrivate, link } = req.query;
-        const betAmount = parseFloat(bet);
+// router.get('/', async (req, res) => {
+//     try {
+//         const { tableId, name, bet, isPrivate, link, createdAt } = req.query;
+//         const betAmount = parseFloat(bet);
 
-        // Vérifier que tous les paramètres requis sont présents et valides
-        if (!tableId || !name || isNaN(betAmount) || isPrivate === undefined || !link) {
-            return res.status(400).json({
-                success: false,
-                message: 'Paramètres manquants: tableId, name, bet, isPrivate et link sont requis'
-            });
-        }
+//         // Vérifier que tous les paramètres requis sont présents et valides
+//         if (!tableId || !name || isNaN(betAmount) || isPrivate === undefined || !link) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Paramètres manquants: tableId, name, bet, isPrivate et link sont requis'
+//             });
+//         }
 
-        // Extraire le token JWT des headers
-        const token = req.header('Authorization')?.replace('Bearer ', '') || req.header('x-auth-token');
+//         // Extraire le token JWT des headers
+//         const token = req.header('Authorization')?.replace('Bearer ', '') || req.header('x-auth-token');
 
-        if (!token) {
-            return res.status(401).json({
-                success: false,
-                message: 'Token d\'authentification manquant'
-            });
-        }
+//         if (!token) {
+//             return res.status(401).json({
+//                 success: false,
+//                 message: 'Token d\'authentification manquant'
+//             });
+//         }
 
-        // Vérifier le token JWT
-        let user;
-        try {
-            const decoded = jwt.verify(token, config.JWT_SECRET);
-            user = decoded.user;
+//         // Vérifier le token JWT
+//         let user;
+//         try {
+//             const decoded = jwt.verify(token, config.JWT_SECRET);
+//             user = decoded.user;
 
-            if (!user || !user.id) {
-                return res.status(401).json({
-                    success: false,
-                    message: 'Token d\'authentification invalide - données utilisateur manquantes'
-                });
-            }
-        } catch (err) {
-            console.error('Erreur de vérification JWT:', err);
-            return res.status(401).json({
-                success: false,
-                message: 'Token d\'authentification invalide'
-            });
-        }
+//             if (!user || !user.id) {
+//                 return res.status(401).json({
+//                     success: false,
+//                     message: 'Token d\'authentification invalide - données utilisateur manquantes'
+//                 });
+//             }
+//         } catch (err) {
+//             console.error('Erreur de vérification JWT:', err);
+//             return res.status(401).json({
+//                 success: false,
+//                 message: 'Token d\'authentification invalide'
+//             });
+//         }
 
-        // Retourner directement les informations reçues
-        res.status(200).json({
-            id: tableId,
-            name,
-            bet: betAmount,
-            isPrivate: isPrivate === 'true',
-            link,
-            userInfo: {
-                id: user.id,
-                name: user.name
-            }
-        });
+//         // Retourner directement les informations reçues
+//         res.status(200).json({
+//             id: tableId,
+//             name,
+//             bet: betAmount,
+//             isPrivate: isPrivate === 'true',
+//             link,
+//             createdAt: createdAt,
+//             userInfo: {
+//                 id: user.id,
+//                 name: user.name
+//             }
+//         });
 
-    } catch (error) {
-        console.error('Erreur lors de la connexion à la table:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Erreur interne du serveur'
-        });
-    }
-});
+//     } catch (error) {
+//         console.error('Erreur lors de la connexion à la table:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Erreur interne du serveur'
+//         });
+//     }
+// });
 
 // Route POST /api/play - Créer ou rejoindre une table
 router.post('/', async (req, res) => {
     try {
-        const { tableId, name, bet, isPrivate, link } = req.body;
+        const { tableId, name, bet, isPrivate, link, createdAt } = req.body;
 
         // Vérifier que tous les paramètres requis sont présents
         if (!tableId || !name || bet === undefined || isPrivate === undefined || !link) {
@@ -160,6 +161,7 @@ router.post('/', async (req, res) => {
             name,
             bet,
             isPrivate,
+            createdAt,
             link,
             userInfo: {
                 id: user.id,

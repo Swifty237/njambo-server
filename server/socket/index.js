@@ -82,10 +82,15 @@ const init = (socket, io) => {
       });
 
       if (found) {
+        // Au lieu de supprimer le joueur des tables, on met à jour son socketId
         delete players[found.socketId];
-        Object.values(tables).map((table) => {
-          table.removePlayer(found.socketId);
-          broadcastToTable(table, null, 'Le katika');
+
+        // Mettre à jour le socketId du joueur dans toutes les tables
+        Object.values(tables).forEach((table) => {
+          const playerInTable = table.players.find(p => p.id === found.id);
+          if (playerInTable) {
+            playerInTable.socketId = socket.id;
+          }
         });
       }
 
@@ -140,29 +145,45 @@ const init = (socket, io) => {
         }
       }
 
-      // Si toujours pas de joueur, utiliser les données de base
-      if (!player) {
-        players[socket.id] = new Player(
-          socket.id,
-          socket.id, // utiliser socketId comme fallback
-          name,
-          0
-        );
-        player = players[socket.id];
+      // Vérifier si le joueur est valide
+      if (!player || !player.id || !player.name) {
+        console.error('Invalid player data');
+        socket.emit('error', { message: 'Invalid player data' });
+        return;
       }
-      tables[id].addPlayer(player);
 
-      socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
-      socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
+      // Vérifier que la table existe toujours
+      if (!tables[id]) {
+        socket.emit('error', { message: 'Table not found' });
+        return;
+      }
 
-      if (
-        tables[id].players &&
-        tables[id].players.length > 0 &&
-        player
-      ) {
+      let isOnTable = true;
+
+      // Si le joueur n'est pas déjà sur la table, on l'ajoute
+      if (!tables[id].isPlayerAlreadyOnTable(player.id, player.name)) {
+        isOnTable = false;
+        tables[id].addPlayer(player);
+      }
+
+      // S'assurer que l'id est bien défini avant de l'envoyer
+      const tableId = tables[id].id;
+      if (!tableId) {
+        socket.emit('error', { message: 'Invalid table ID' });
+        return;
+      }
+
+      setTimeout(() => {
+        socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id: tableId });
+        socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
+      }, 1000);
+
+      if (tables[id].players && tables[id].players.length > 0 && !isOnTable) {
         let message = `${player.name} joined the table.`;
         broadcastToTable(tables[id], message, 'Le katika');
+        isOnTable = true;
       }
+
     } catch (error) {
       console.error('Error in JOIN_TABLE:', error);
       socket.emit('error', { message: 'Failed to join table' });
@@ -471,18 +492,26 @@ const init = (socket, io) => {
 
   socket.on(DISCONNECT, async () => {
     try {
-      const seat = findSeatBySocketId(socket.id);
-      if (seat && seat.player && typeof seat.stack === 'number') {
-        await updatePlayerBankroll(seat.player, seat.stack);
-      }
+      // Attendre un court instant pour voir si c'est une reconnexion
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      if (socket.id) {
-        delete players[socket.id];
-        removeFromTables(socket.id);
-      }
+      // Vérifier si le joueur existe encore dans une table avec un nouveau socketId
+      const player = Object.values(players).find(p => p.id === socket.id);
+      if (!player) {
+        // Si le joueur n'existe plus, c'est une vraie déconnexion
+        const seat = findSeatBySocketId(socket.id);
+        if (seat && seat.player && typeof seat.stack === 'number') {
+          await updatePlayerBankroll(seat.player, seat.stack);
+        }
 
-      socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
-      socket.broadcast.emit(PLAYERS_UPDATED, getCurrentPlayers());
+        if (socket.id) {
+          delete players[socket.id];
+          removeFromTables(socket.id);
+        }
+
+        socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
+        socket.broadcast.emit(PLAYERS_UPDATED, getCurrentPlayers());
+      }
     } catch (error) {
       console.error('Error handling disconnect:', error);
     }

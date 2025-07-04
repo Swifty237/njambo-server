@@ -55,6 +55,14 @@ class Table {
     this.players.push(player);
   }
 
+  isPlayerAlreadyOnTable(userId, userName) {
+    return this.players.some(player =>
+      player &&
+      String(player.id) === String(userId) &&
+      player.name === userName
+    );
+  }
+
   removePlayer(socketId) {
     if (!socketId) return;
 
