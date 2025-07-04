@@ -40,6 +40,7 @@ class Table {
     this.wonByCombination = false; // Flag pour indiquer une victoire par combinaison
     this.onTurnChanged = null;    // Callback pour notifier du changement de tour
     this.chatRoom = new ChatRoom();
+    this.link = null;
   }
 
   initSeats(maxPlayers) {

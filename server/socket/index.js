@@ -62,6 +62,7 @@ function getCurrentTables() {
     currentRoundCards: table.currentRoundCards,
     roundNumber: table.roundNumber,
     chatRoom: table.chatRoom,
+    link: table.link,
   }));
 }
 
@@ -107,34 +108,64 @@ const init = (socket, io) => {
   });
 
   socket.on(JOIN_TABLE, async ({ id, name, bet, isPrivate, createdAt }) => {
-    let tableExists = false;
+    try {
+      let tableExists = false;
 
-    Object.keys(tables).forEach(tableId => {
-      if (tableId === id) {
-        return tableExists = true;
+      Object.keys(tables).forEach(tableId => {
+        if (tableId === id) {
+          return tableExists = true;
+        }
+      });
+
+      if (!tableExists) {
+        tables[id] = new Table(id, name, bet, isPrivate, createdAt);
+        // Configurer les callbacks dès la création de la table
+        setupTableCallbacks(tables[id]);
       }
-    });
 
-    if (!tableExists) {
-      tables[id] = new Table(id, name, bet, isPrivate, createdAt);
-      // Configurer les callbacks dès la création de la table
-      setupTableCallbacks(tables[id]);
-    }
+      // Vérifier si le joueur existe déjà
+      let player = players[socket.id];
 
-    const player = players[socket.id];
+      // Si le joueur n'existe pas, essayer de le créer avec les données d'auth
+      if (!player && socket.handshake.auth) {
+        const { userId, userName, chipsAmount } = socket.handshake.auth;
+        if (userId && userName) {
+          players[socket.id] = new Player(
+            socket.id,
+            userId,
+            userName,
+            chipsAmount || 0
+          );
+          player = players[socket.id];
+        }
+      }
 
-    tables[id].addPlayer(player);
+      // Si toujours pas de joueur, utiliser les données de base
+      if (!player) {
+        players[socket.id] = new Player(
+          socket.id,
+          socket.id, // utiliser socketId comme fallback
+          name,
+          0
+        );
+        player = players[socket.id];
+      }
+      tables[id].addPlayer(player);
 
-    socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
-    socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
+      socket.emit(TABLE_JOINED, { tables: getCurrentTables(), id });
+      socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
 
-    if (
-      tables[id].players &&
-      tables[id].players.length > 0 &&
-      player
-    ) {
-      let message = `${player.name} joined the table.`;
-      broadcastToTable(tables[id], message, 'Le katika');
+      if (
+        tables[id].players &&
+        tables[id].players.length > 0 &&
+        player
+      ) {
+        let message = `${player.name} joined the table.`;
+        broadcastToTable(tables[id], message, 'Le katika');
+      }
+    } catch (error) {
+      console.error('Error in JOIN_TABLE:', error);
+      socket.emit('error', { message: 'Failed to join table' });
     }
   });
 

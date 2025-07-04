@@ -10,6 +10,13 @@ const validateToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, config.JWT_SECRET);
+
+    // Vérifier que l'objet user existe dans le token décodé
+    if (!decoded.user || !decoded.user.id) {
+      console.error('Token décodé mais user ou user.id manquant:', decoded);
+      return res.status(401).json({ msg: 'Invalid token structure!' });
+    }
+
     req.user = decoded.user;
     next();
   } catch (err) {
