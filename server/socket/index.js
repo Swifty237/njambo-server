@@ -80,7 +80,6 @@ const init = (socket, io) => {
 
       user = decoded.user;
       if (!user) {
-        console.log("[FETCH_LOBBY_INFO] No user data in token");
         return;
       }
 
@@ -91,47 +90,25 @@ const init = (socket, io) => {
         token: token
       };
 
-      console.log("[FETCH_LOBBY_INFO] Saved auth data in socket:", {
-        userId: socket.data.userId,
-        userName: socket.data.userName
-      });
-
-      console.log("[FETCH_LOBBY_INFO] Checking for existing player with user.id:", user.id);
-
       // Chercher le joueur dans toutes les tables
       let found = null;
       Object.values(tables).forEach(table => {
-        const playerInTable = table.players.find(p => {
-          console.log("[FETCH_LOBBY_INFO] Comparing table player:", {
-            playerId: p?.id,
-            playerIdType: typeof p?.id,
-            userId: user.id,
-            userIdType: typeof user.id
-          });
-          return p && String(p.id) === String(user.id);
-        });
+        const playerInTable = table.players.find(p =>
+          p && String(p.id) === String(user.id)
+        );
         if (playerInTable) {
-          console.log("[FETCH_LOBBY_INFO] Found player in table:", playerInTable.name);
           found = playerInTable;
         }
       });
 
       // Si pas trouvé dans les tables, chercher dans la liste des joueurs
       if (!found) {
-        found = Object.values(players).find(player => {
-          console.log("[FETCH_LOBBY_INFO] Comparing player:", {
-            playerId: player?.id,
-            playerIdType: typeof player?.id,
-            userId: user.id,
-            userIdType: typeof user.id
-          });
-          return player && String(player.id) === String(user.id);
-        });
-        console.log("[FETCH_LOBBY_INFO] Found player in players list:", found?.name);
+        found = Object.values(players).find(player =>
+          player && String(player.id) === String(user.id)
+        );
       }
 
       if (found) {
-        console.log("[FETCH_LOBBY_INFO] Updating player socketId from", found.socketId, "to", socket.id);
         // Mettre à jour le socketId partout
         delete players[found.socketId];
         found.socketId = socket.id;
@@ -141,36 +118,19 @@ const init = (socket, io) => {
         Object.values(tables).forEach(table => {
           // Mettre à jour dans la liste des joueurs de la table
           table.players.forEach(p => {
-            console.log("[FETCH_LOBBY_INFO] Checking table player:", {
-              tablePlayerId: p?.id,
-              tablePlayerIdType: typeof p?.id,
-              userId: user.id,
-              userIdType: typeof user.id
-            });
             if (p && String(p.id) === String(user.id)) {
-              console.log("[FETCH_LOBBY_INFO] Updating player in table:", table.id);
               p.socketId = socket.id;
             }
           });
 
           // Mettre à jour dans les sièges
           Object.values(table.seats).forEach(seat => {
-            if (seat && seat.player) {
-              console.log("[FETCH_LOBBY_INFO] Checking seat player:", {
-                seatPlayerId: seat.player?.id,
-                seatPlayerIdType: typeof seat.player?.id,
-                userId: user.id,
-                userIdType: typeof user.id
-              });
-              if (String(seat.player.id) === String(user.id)) {
-                console.log("[FETCH_LOBBY_INFO] Updating player in seat:", seat.id);
-                seat.player.socketId = socket.id;
-              }
+            if (seat && seat.player && String(seat.player.id) === String(user.id)) {
+              seat.player.socketId = socket.id;
             }
           });
         });
       } else {
-        console.log("[FETCH_LOBBY_INFO] Creating new player");
         const userInfo = await User.findById(user.id).select('-password');
         players[socket.id] = new Player(
           socket.id,
@@ -208,6 +168,20 @@ const init = (socket, io) => {
 
       // Configurer les callbacks dès la création ou récupération de la table
       setupTableCallbacks(tables[id]);
+
+      if (socket.handshake.auth) {
+        const { userId, userName } = socket.handshake.auth;
+
+        const playerExists = Object.values(players).some(player =>
+          player &&
+          String(player.id) === String(userId) &&
+          player.name === userName
+        );
+
+        if (playerExists) {
+          return true;
+        }
+      }
 
       // S'assurer que l'id de la table est bien défini
       const tableId = tables[id]?.id;
@@ -256,10 +230,6 @@ const init = (socket, io) => {
       const table = tables[tableId];
       const player = players[socket.id];
 
-      console.log("[LEAVE_TABLE] Starting leave for tableId:", tableId);
-      console.log("[LEAVE_TABLE] Player:", player ? `${player.name} (${player.id})` : "not found");
-      console.log("[LEAVE_TABLE] Socket ID:", socket.id);
-
       // Vérifier si la table existe
       if (!table) {
         socket.emit(TABLE_LEFT, { tables: getCurrentTables(), tableId });
@@ -271,8 +241,6 @@ const init = (socket, io) => {
         return;
       }
 
-      console.log("[LEAVE_TABLE] Finding seat for player:", player?.name);
-
       // Trouver le siège du joueur en utilisant soit le socketId soit l'ID du joueur
       const seat = Object.values(table.seats).find(
         (seat) => seat && seat.player && (
@@ -281,17 +249,10 @@ const init = (socket, io) => {
         )
       );
 
-      console.log("[LEAVE_TABLE] Found seat:", seat ? `Seat ${seat.id}` : "not found");
-
       if (seat && player) {
-        console.log("[LEAVE_TABLE] Processing leave for player:", player.name);
-
         // Vérifier que le stack est un nombre valide
         if (typeof seat.stack === 'number' && !isNaN(seat.stack)) {
-          console.log("[LEAVE_TABLE] Updating bankroll with stack:", seat.stack);
           await updatePlayerBankroll(player, seat.stack);
-        } else {
-          console.log("[LEAVE_TABLE] Invalid stack value:", seat.stack);
         }
 
         // Si c'était le tour de ce joueur et qu'une main est en cours
@@ -344,18 +305,13 @@ const init = (socket, io) => {
 
       // Ne supprimer la table que si elle est vraiment vide
       if (table.players.length === 0) {
-        console.log("[LEAVE_TABLE] Table empty, checking seats...");
-
         // Vérifier si tous les sièges sont vides
         const hasPlayersInSeats = Object.values(table.seats).some(seat =>
           seat && seat.player
         );
 
         if (!hasPlayersInSeats) {
-          console.log("[LEAVE_TABLE] All seats empty, removing table:", tableId);
           delete tables[tableId];
-        } else {
-          console.log("[LEAVE_TABLE] Found players in seats, keeping table");
         }
       }
 
@@ -587,9 +543,6 @@ const init = (socket, io) => {
 
   socket.on(DISCONNECT, async () => {
     try {
-      console.log("[DISCONNECT] Starting disconnect handler for socket:", socket.id);
-      console.log("[DISCONNECT] Auth data:", socket.handshake.auth);
-
       // Attendre un court instant pour voir si c'est une reconnexion
       await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -600,7 +553,6 @@ const init = (socket, io) => {
           p && p.socketId === socket.id
         );
         if (playerInTable) {
-          console.log("[DISCONNECT] Found player in table:", playerInTable.name);
           player = playerInTable;
         }
       });
@@ -608,30 +560,23 @@ const init = (socket, io) => {
       // Si pas trouvé dans les tables, chercher dans la liste des joueurs
       if (!player) {
         player = players[socket.id];
-        console.log("[DISCONNECT] Found player in players list:", player?.name);
       }
 
       if (!player) {
-        console.log("[DISCONNECT] No player found for socket:", socket.id);
         // Si le joueur n'existe plus, c'est une vraie déconnexion
         const seat = findSeatBySocketId(socket.id);
-        console.log("[DISCONNECT] Seat found:", seat ? `Seat ${seat.id}` : "not found");
 
         if (seat && seat.player && typeof seat.stack === 'number') {
-          console.log("[DISCONNECT] Updating bankroll for player:", seat.player.name, "stack:", seat.stack);
           await updatePlayerBankroll(seat.player, seat.stack);
         }
 
         if (socket.id) {
-          console.log("[DISCONNECT] Cleaning up player data for socket:", socket.id);
           delete players[socket.id];
           removeFromTables(socket.id);
         }
 
         socket.broadcast.emit(TABLES_UPDATED, getCurrentTables());
         socket.broadcast.emit(PLAYERS_UPDATED, getCurrentPlayers());
-      } else {
-        console.log("[DISCONNECT] Player still exists, probably reconnecting");
       }
     } catch (error) {
       console.error('Error handling disconnect:', error);
@@ -640,7 +585,7 @@ const init = (socket, io) => {
 
   async function updatePlayerBankroll(player, amount) {
     try {
-      if (!player || !player.id) {
+      if (!player || !player.id || !amount) {
         return;
       }
 
@@ -658,7 +603,7 @@ const init = (socket, io) => {
         io.to(socket.id).emit(PLAYERS_UPDATED, getCurrentPlayers());
       }
     } catch (error) {
-      console.error('Error in updatePlayerBankroll:', error);
+      console.error('Error updating bankroll:', error);
     }
   }
 
