@@ -169,19 +169,19 @@ const init = (socket, io) => {
       // Configurer les callbacks dès la création ou récupération de la table
       setupTableCallbacks(tables[id]);
 
-      if (socket.handshake.auth) {
-        const { userId, userName } = socket.handshake.auth;
+      // if (socket.handshake.auth) {
+      //   const { userId, userName } = socket.handshake.auth;
 
-        const playerExists = Object.values(players).some(player =>
-          player &&
-          String(player.id) === String(userId) &&
-          player.name === userName
-        );
+      //   const playerExists = Object.values(players).some(player =>
+      //     player &&
+      //     String(player.id) === String(userId) &&
+      //     player.name === userName
+      //   );
 
-        if (playerExists) {
-          return true;
-        }
-      }
+      //   if (playerExists) {
+      //     return true;
+      //   }
+      // }
 
       // S'assurer que l'id de la table est bien défini
       const tableId = tables[id]?.id;
