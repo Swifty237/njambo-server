@@ -3,12 +3,13 @@ class ChatRoom {
         this.chatMessages = [];
     }
 
-    addMessage(message, seat, createdAt = new Date()) {
+    addMessage(name, message, seatId, createdAt = new Date()) {
         if (message) {
             const newMessage = {
+                name,
                 message,
                 createdAt,
-                seat
+                seatId
             };
             this.chatMessages.push(newMessage);
             return newMessage;

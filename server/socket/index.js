@@ -337,25 +337,19 @@ const init = (socket, io) => {
 
   socket.on(SEND_CHAT_MESSAGE, async ({ tableId, seatId, message }) => {
     const table = tables[tableId];
-    const seat = table?.seats[seatId];
+    const name = seatId ? table?.seats[seatId].player.name : '';
 
     if (table && message) {
       // Ajouter le message au chatRoom avec les métadonnées
-      const newMessage = table.chatRoom.addMessage(message, seat, new Date());
+      const newMessage = table.chatRoom.addMessage(name, message, seatId, new Date());
 
       if (newMessage) {
+
         // Diffuser le message à tous les joueurs de la table
-        for (let i = 0; i < table.players.length; i++) {
-          const player = table.players[i];
-          if (player && player.socketId) {
-            let playerSocketId = player.socketId;
-            io.to(playerSocketId).emit(CHAT_MESSAGE_RECEIVED, {
-              tables: getCurrentTables(),
-              tableId,
-              chatMessage: newMessage
-            });
-          }
-        }
+        socket.emit(CHAT_MESSAGE_RECEIVED, {
+          tables: getCurrentTables(),
+          tableId,
+        });
       }
     }
   })
