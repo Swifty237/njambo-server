@@ -26,8 +26,7 @@ const {
   SHOW_DOWN,
   SEND_CHAT_MESSAGE,
   CHAT_MESSAGE_RECEIVED,
-  RECONNECT_PLAYER,
-  PLAYER_RECONNECTED
+  REFRESH_CHAT,
 } = require('../pokergame/actions');
 const config = require('../config');
 
@@ -350,6 +349,7 @@ const init = (socket, io) => {
           tables: getCurrentTables(),
           tableId,
         });
+        broadcastRefreshChat(table)
       }
     }
   })
@@ -639,6 +639,25 @@ const init = (socket, io) => {
         let socketId = player.socketId;
         let tableCopy = hideOpponentCards(table, socketId);
         io.to(socketId).emit(TABLE_UPDATED, {
+          table: tableCopy,
+          message,
+          from,
+        });
+      }
+    }
+  }
+
+  function broadcastRefreshChat(table, message = null, from = null) {
+    if (!table || !table.players || !Array.isArray(table.players)) {
+      return;
+    }
+
+    for (let i = 0; i < table.players.length; i++) {
+      const player = table.players[i];
+      if (player && player.socketId) {
+        let socketId = player.socketId;
+        let tableCopy = hideOpponentCards(table, socketId);
+        io.to(socketId).emit(REFRESH_CHAT, {
           table: tableCopy,
           message,
           from,
