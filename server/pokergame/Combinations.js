@@ -49,7 +49,7 @@ function hasTia(hand) {
         return total + RANK_VALUES[card.rank];
     }, 0);
 
-    if (sum < 21) {
+    if (sum < 22) {
         return {
             type: 'TIA',
             sum: sum,

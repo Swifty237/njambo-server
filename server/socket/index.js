@@ -2,7 +2,6 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const Table = require('../pokergame/Table');
 const Player = require('../pokergame/Player');
-const Seat = require('../pokergame/Seat');
 const {
   FETCH_LOBBY_INFO,
   RECEIVE_LOBBY_INFO,
@@ -167,20 +166,6 @@ const init = (socket, io) => {
 
       // Configurer les callbacks dès la création ou récupération de la table
       setupTableCallbacks(tables[id]);
-
-      // if (socket.handshake.auth) {
-      //   const { userId, userName } = socket.handshake.auth;
-
-      //   const playerExists = Object.values(players).some(player =>
-      //     player &&
-      //     String(player.id) === String(userId) &&
-      //     player.name === userName
-      //   );
-
-      //   if (playerExists) {
-      //     return true;
-      //   }
-      // }
 
       // S'assurer que l'id de la table est bien défini
       const tableId = tables[id]?.id;
