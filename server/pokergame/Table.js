@@ -880,8 +880,6 @@ class Table {
         }
       }
 
-      console.log("winnerByLastSittingIn : ", winnerByLastSittingIn);
-
       // Si un joueur a une combinaison gagnante, il gagne immédiatement
       if (winnerByLastSittingIn) {
         this.lastWinningSeat = winnerByLastSittingIn.id;

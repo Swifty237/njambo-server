@@ -255,7 +255,6 @@ router.post('/leave', async (req, res) => {
                 if (user) {
                     user.chipsAmount += seat.stack;
                     await user.save();
-                    console.log(`Remboursement de ${seat.stack} jetons à ${userInfo.name}`);
                 }
             } catch (error) {
                 console.error('Erreur lors du remboursement:', error);
@@ -274,10 +273,8 @@ router.post('/leave', async (req, res) => {
         // Supprimer la table si elle est vide
         if (table.players.length === 0) {
             delete tables[tableId];
-            console.log(`Table ${tableId} supprimée car vide`);
         }
 
-        console.log(`Joueur ${userInfo.name} déconnecté de la table ${tableId}, siège ${seatId}`);
 
         res.status(200).json({
             success: true,
