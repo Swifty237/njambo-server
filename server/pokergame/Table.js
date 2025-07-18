@@ -868,6 +868,52 @@ class Table {
     // Vérifier d'abord les combinaisons gagnantes des joueurs qui montrent leurs cartes
     let bestCombo = null;
     let winnerByCombination = null;
+    let winnerByLastSittingIn = null;
+
+    if (this.handParticipants.length === 1) {
+      // Si il n'y a qu'un seul participant, il gagne la main
+
+      for (let i = 1; i <= this.maxPlayers; i++) {
+        const seat = this.seats[i];
+        if (seat) {
+          winnerByLastSittingIn = seat;
+        }
+      }
+
+      console.log("winnerByLastSittingIn : ", winnerByLastSittingIn);
+
+      // Si un joueur a une combinaison gagnante, il gagne immédiatement
+      if (winnerByLastSittingIn) {
+        this.lastWinningSeat = winnerByLastSittingIn.id;
+
+        const winMessage = `${winnerByLastSittingIn.player.name} gagne!`;
+        this.winMessages.push(winMessage);
+
+        // Mettre le bet de tous les joueurs à zéro
+        for (let i = 1; i <= this.maxPlayers; i++) {
+          if (this.seats[i]) {
+            this.seats[i].bet = 0;
+          }
+        }
+
+        // Attribuer le pot au gagnant
+        winnerByLastSittingIn.winHand(this.pot);
+
+        // // Marquer qu'il y a eu une victoire par combinaison
+        // this.wonByCombination = true;
+
+        // Terminer la main actuelle
+        this.endHand();
+
+        // Déclencher le callback pour notifier la fin de la main
+        if (this.onHandComplete && !this.handCompleted) {
+          this.handCompleted = true;
+          this.onHandComplete();
+        }
+        return;
+      }
+
+    }
 
     for (let i = 1; i <= this.maxPlayers; i++) {
       const seat = this.seats[i];
@@ -942,19 +988,19 @@ class Table {
         let winMessage = `${winner.player.name} gagne la main!`;
         this.winMessages.push(winMessage);
 
-        // Vérifier la dernière carte du gagnant
-        const lastCard = this.getLastPlayedCard(this.lastWinningSeat);
-        if (lastCard && this.isRankThree(lastCard)) {
-          // Vérifier les deux dernières cartes
-          const lastTwoCards = this.getLastTwoPlayedCards(this.lastWinningSeat);
-          if (lastTwoCards.length === 2 && this.isRankThree(lastTwoCards[0]) && this.isRankThree(lastTwoCards[1])) {
-            winMessage = `${winner.player.name} à mis la 33 et vous avez bu!`;
-            this.winMessages.push(winMessage);
+        // Vérifier les deux dernières cartes
+        const lastTwoCards = this.getLastTwoPlayedCards(this.lastWinningSeat);
+        if (lastTwoCards.length === 2 && this.isRankThree(lastTwoCards[0]) && this.isRankThree(lastTwoCards[1])) {
+          winMessage = `${winner.player.name} à mis la 33 et vous avez bu!`;
+          this.winMessages.push(winMessage);
 
-            // Collecter les mises deux fois
-            this.collectBetsExcept(this.lastWinningSeat);
-            this.collectBetsExcept(this.lastWinningSeat);
-          } else {
+          // Collecter les mises deux fois
+          this.collectBetsExcept(this.lastWinningSeat);
+          this.collectBetsExcept(this.lastWinningSeat);
+        } else {
+          // Vérifier la dernière carte du gagnant
+          const lastCard = this.getLastPlayedCard(this.lastWinningSeat);
+          if (lastCard && this.isRankThree(lastCard)) {
             winMessage = `${winner.player.name} à mis le korat, c'est dedans!`;
             this.winMessages.push(winMessage);
 

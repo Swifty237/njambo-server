@@ -235,7 +235,7 @@ const init = (socket, io) => {
 
       if (seat && player) {
         // Vérifier que le stack est un nombre valide
-        if (typeof seat.stack === 'number' && !isNaN(seat.stack)) {
+        if (typeof seat.stack === 'number' && !isNaN(seat.stack) && table.handOver) {
           await updatePlayerBankroll(player, seat.stack);
         }
 
@@ -259,6 +259,13 @@ const init = (socket, io) => {
             }
           } else {
             table.handOver = true;
+            const winnerByLastSittingIn = table.determinePotWinner();
+
+            // Ne pas démarrer de nouvelle main si une main est en cours
+            if (table.handOver && table.currentHandPlayers().length > 1) {
+              initNewHand(table);
+            }
+
             if (remainingPlayers.length === 1) {
               clearForOnePlayer(table);
             }
@@ -277,6 +284,13 @@ const init = (socket, io) => {
           const remainingPlayers = table.activePlayers();
           if (remainingPlayers.length < 2 && !table.handOver) {
             table.handOver = true;
+            const winnerByLastSittingIn = table.determinePotWinner();
+
+            // Ne pas démarrer de nouvelle main si une main est en cours
+            if (table.handOver && table.currentHandPlayers().length > 1) {
+              initNewHand(table);
+            }
+
             if (remainingPlayers.length === 1) {
               clearForOnePlayer(table);
             }
@@ -446,9 +460,15 @@ const init = (socket, io) => {
     }
   });
 
-  socket.on(SITTING_OUT, ({ tableId, seatId }) => {
+  socket.on(SITTING_OUT, async ({ tableId, seatId }) => {
     const table = tables[tableId];
     const seat = table.seats[seatId];
+    const player = players[socket.id];
+
+    // Vérifier que le stack est un nombre valide
+    if (typeof seat.stack === 'number' && !isNaN(seat.stack) && table.handOver) {
+      await updatePlayerBankroll(player, seat.stack);
+    }
 
     // Si une main est en cours et que ce joueur y participe, 
     // on attend la fin de la main avant de le mettre en sitout
@@ -459,6 +479,9 @@ const init = (socket, io) => {
       seat.sittingOut = true;
       broadcastToTable(table, `${seat.player.name} est en pause`, 'Le katika');
     }
+
+    table.handOver = true;
+    const winnerByLastSittingIn = table.determinePotWinner();
 
     // Ne démarrer une nouvelle main que si la main en cours est terminée
     if (table.handOver && table.currentHandPlayers().length > 1) {
